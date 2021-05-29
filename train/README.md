@@ -19,6 +19,9 @@ and the datasets.
 export HF_HOME=/gpfs/alpine/world-shared/bip214/affinity_pred/train
 export TORCH_EXTENSIONS_DIR=/gpfs/alpine/world-shared/bip214/affinity_pred/train/build
 
+# load cuda compatible with conda installation
+module load cuda/10.2
+
 # this might crash with out of memory
 CUDA_VISIBLE_DEVICES=1 deepspeed ../affinity_pred/finetune.py \
 --deepspeed='ds_config_scale.json' \
