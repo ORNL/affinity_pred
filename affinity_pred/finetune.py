@@ -198,7 +198,7 @@ class EnsembleSequenceRegressor(torch.nn.Module):
 
         if self.sparsity_config is not None and pad_len_1 > 0:
             sequence_output = self.sparse_attention_utils.unpad_sequence_output(
-                pad_len, sequence_output)
+                pad_len_1, sequence_output)
 
         pooled_output = self.seq_model.pooler(sequence_output) if self.seq_model.pooler is not None else None
         outputs.append((sequence_output, pooled_output))
