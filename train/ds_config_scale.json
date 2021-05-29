@@ -4,6 +4,7 @@
 
   "fp16": {
         "enabled": true,
+        "initial_scale_power": 10,
         "loss_scale": 0,
         "loss_scale_window": 1000,
         "hysteresis": 2,
