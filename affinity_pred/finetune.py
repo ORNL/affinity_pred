@@ -218,10 +218,9 @@ class EnsembleSequenceRegressor(torch.nn.Module):
         logits = self.cls(last_hidden_states).squeeze(-1)
 
         if labels is not None:
-            with torch.cuda.amp.autocast():
-                # crossentropyloss: https://pytorch.org/docs/stable/nn.html#crossentropyloss
-                loss_fct = torch.nn.MSELoss()
-                loss = loss_fct(logits.view(-1, 1), labels.view(-1,1))
+            # crossentropyloss: https://pytorch.org/docs/stable/nn.html#crossentropyloss
+            loss_fct = torch.nn.MSELoss()
+            loss = loss_fct(logits.view(-1, 1), labels.view(-1,1).half())
             return (loss, logits)
         else:
             return output
