@@ -217,12 +217,10 @@ class EnsembleSequenceRegressor(torch.nn.Module):
 
         logits = self.cls(last_hidden_states).squeeze(-1)
 
-        print('***** here ****')
         if labels is not None:
             with torch.cuda.amp.autocast():
                 # crossentropyloss: https://pytorch.org/docs/stable/nn.html#crossentropyloss
                 loss_fct = torch.nn.MSELoss()
-                print('***** there ****')
                 loss = loss_fct(logits.view(-1, 1), labels.view(-1,1))
             return (loss, logits)
         else:
