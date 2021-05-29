@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 #BSUB -P STF006
-#BSUB -W 24:00
+##BSUB -W 24:00
+#BSUB -W 12:00
 #BSUB -q batch
-#BSUB -nnodes 2048
+#BSUB -nnodes 512
 #BSUB -J finetune
 #BSUB -o finetune.o%J
 #BSUB -e finetune.e%J

@@ -18,6 +18,7 @@
         "reduce_scatter": true,
         "reduce_bucket_size": 2e8,
         "contiguous_gradients": true,
+        "stage3_gather_fp16_weights_on_model_save": true,
         "offload_param": {
             "device": "cpu",
             "nvme_path": "/local_nvme",

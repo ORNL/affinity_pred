@@ -27,6 +27,7 @@ CUDA_VISIBLE_DEVICES=1 deepspeed ../affinity_pred/finetune.py \
 --deepspeed='ds_config_scale.json' \
 --output_dir='./results' \
 --num_train_epochs=20 \
+--fp16 \
 --per_device_train_batch_size=8 \
 --per_device_eval_batch_size=8 \
 --warmup_steps=0 \
@@ -36,8 +37,6 @@ CUDA_VISIBLE_DEVICES=1 deepspeed ../affinity_pred/finetune.py \
 --logging_steps=1 \
 --evaluation_strategy="epoch" \
 --gradient_accumulation_steps=1 \
---fp16=True \
---fp16_opt_level="02" \
 --run_name="seq_smiles_affinity" \
 --seed=42
 
