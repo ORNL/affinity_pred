@@ -28,8 +28,8 @@ CUDA_VISIBLE_DEVICES=1 deepspeed ../affinity_pred/finetune.py \
 --output_dir='./results' \
 --num_train_epochs=20 \
 --fp16 \
---per_device_train_batch_size=8 \
---per_device_eval_batch_size=8 \
+--per_device_train_batch_size=16 \
+--per_device_eval_batch_size=16 \
 --warmup_steps=0 \
 --learning_rate=3e-05 \
 --weight_decay=3e-7 \
@@ -43,7 +43,3 @@ CUDA_VISIBLE_DEVICES=1 deepspeed ../affinity_pred/finetune.py \
 # remove stale lock files
 rm -f `find -name *lock`
 ```
-
-*Distributed Training*
-
-OMP_NUM_THREADS=1 jsrun -r 1 -g6 -a 6 -c 42 sh launcher.sh
