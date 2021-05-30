@@ -46,6 +46,4 @@ rm -f `find -name *lock`
 
 *Distributed Training*
 
-OMP_NUM_THREADS=1 jsrun -r 6 -g1 -a 1 -c 7 python ../affinity_pred/finetune.py \
-    --deepspeed='ds_config_scale.json' \
-    ... # other arguments as before
+OMP_NUM_THREADS=1 jsrun -r 1 -g6 -a 6 -c 42 sh launcher.sh
