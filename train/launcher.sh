@@ -1,5 +1,6 @@
 # choose a port in a valid (non-blocked) range, instead of letting NCCL pick a random one
-IP=`ip addr show ib0 | grep -o "inet [0-9]*\.[0-9]*\.[0-9]*\.[0-9]*" | grep -o "[0-9]*\.[0-9]*\.[0-9]*\.[0-9]*"`
+export NCCL_SOCKET_IFNAME=enP5p1s0f0
+IP=`ip addr show ${NCCL_SOCKET_IFNAME} | grep -o "inet [0-9]*\.[0-9]*\.[0-9]*\.[0-9]*" | grep -o "[0-9]*\.[0-9]*\.[0-9]*\.[0-9]*"`
 PORT=$((32768+${OMPI_COMM_WORLD_LOCAL_RANK}))
 export NCCL_COMM_ID=${IP}:${PORT}
 
@@ -16,7 +17,7 @@ python ../affinity_pred/finetune.py \
     --logging_dir='./logs'\
     --logging_steps=1\
     --evaluation_strategy="epoch"\
-    --gradient_accumulation_steps=4\
+    --gradient_accumulation_steps=1\
     --fp16=True\
     --run_name="seq_smiles_affinity"\
     --seed=42

@@ -21,6 +21,7 @@ from sparse_self_attention import BertSparseSelfAttention
 
 from datasets import load_dataset
 from torch.utils.data import Dataset
+from torch.nn import functional as F
 
 from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score
 from sklearn.metrics import mean_squared_error, mean_absolute_error
@@ -98,15 +99,15 @@ class EnsembleSequenceRegressor(torch.nn.Module):
     def __init__(self, seq_model_name, smiles_model_name, *args, **kwargs):
         super().__init__()
 
-        # enable gradient checkpointing for sequence model
+        # enable gradient checkpointing
         seq_config = BertConfig.from_pretrained(seq_model_name)
         seq_config.gradient_checkpointing=True
         self.seq_model = BertModel.from_pretrained(seq_model_name,config=seq_config)
-        self.smiles_model = BertModel.from_pretrained(smiles_model_name)
+        smiles_config = BertConfig.from_pretrained(smiles_model_name)
+        smiles_config.gradient_checkpointing=True
+        self.smiles_model = BertModel.from_pretrained(smiles_model_name,config=smiles_config)
 
-        smiles_config = self.smiles_model.config
-
-        # for deepspeed stage 3
+        # for deepspeed stage 3 (to estimate buffer sizes)
         self.config = BertConfig(hidden_size = self.seq_model.config.hidden_size + self.smiles_model.config.hidden_size)
 
         self.sparsity_config = None
@@ -145,11 +146,26 @@ class EnsembleSequenceRegressor(torch.nn.Module):
         else:
             self.cls = MLP(seq_config.hidden_size+smiles_config.hidden_size)
 
+    def pad_to_block_size(self,
+                          block_size,
+                          input_ids,
+                          attention_mask,
+                          pad_token_id):
+        batch_size, seq_len = input_ids.shape
+
+        pad_len = (block_size - seq_len % block_size) % block_size
+        if pad_len > 0:
+            if input_ids is not None:
+                input_ids = F.pad(input_ids, (0, pad_len), value=pad_token_id)
+            # pad attention mask without attention on the padding tokens
+            attention_mask = F.pad(attention_mask, (0, pad_len), value=False)
+
+        return pad_len, input_ids, attention_mask
+
     def forward(
             self,
             input_ids=None,
             attention_mask=None,
-            token_type_ids=None,
             position_ids=None,
             head_mask=None,
             inputs_embeds=None,
@@ -158,7 +174,6 @@ class EnsembleSequenceRegressor(torch.nn.Module):
         outputs = []
         input_ids_1 = input_ids[:,:max_seq_length]
         attention_mask_1 = attention_mask[:,:max_seq_length]
-        token_type_ids_1 = token_type_ids[:,:max_seq_length]
 
         # sequence model with sparse attention
         input_shape = input_ids_1.size()
@@ -174,20 +189,14 @@ class EnsembleSequenceRegressor(torch.nn.Module):
             encoder_extended_attention_mask = None
 
         if self.sparsity_config is not None:
-            pad_len_1, input_ids_1, attention_mask_1, token_type_ids_1, position_ids_1, input_embeds_1 = self.sparse_attention_utils.pad_to_block_size(
+            pad_len_1, input_ids_1, attention_mask_1 = self.pad_to_block_size(
                 block_size=self.sparsity_config.block,
                 input_ids=input_ids_1,
                 attention_mask=attention_mask_1,
-                token_type_ids=token_type_ids_1,
-                position_ids=None,
-                inputs_embeds=None,
-                pad_token_id=self.pad_token_id,
-                model_mbeddings=None)
+                pad_token_id=self.pad_token_id)
 
-        assert inputs_embeds is None
         embedding_output = self.seq_model.embeddings(
-                    input_ids=input_ids_1,
-                    token_type_ids=token_type_ids_1
+                    input_ids=input_ids_1
                 )
         encoder_outputs = self.seq_model.encoder(
             embedding_output,
@@ -206,10 +215,8 @@ class EnsembleSequenceRegressor(torch.nn.Module):
         # smiles model with full attention
         input_ids_2 = input_ids[:,max_seq_length:]
         attention_mask_2 = attention_mask[:,max_seq_length:]
-        token_type_ids_2 = token_type_ids[:,max_seq_length:]
         outputs.append(self.smiles_model(input_ids=input_ids_2,
                                          attention_mask=attention_mask_2,
-                                         token_type_ids=token_type_ids_2,
                                          return_dict=False))
 
         # output is a tuple (hidden_state, pooled_output)
@@ -249,8 +256,6 @@ def encode(item):
 
         item['input_ids'] = [torch.cat([torch.tensor(seq_encodings['input_ids']),
                                         torch.tensor(smiles_encodings['input_ids'])])]
-        item['token_type_ids'] = [torch.cat([torch.tensor(seq_encodings['token_type_ids']),
-                                        torch.tensor(smiles_encodings['token_type_ids'])])]
         item['attention_mask'] = [torch.cat([torch.tensor(seq_encodings['attention_mask']),
                                             torch.tensor(smiles_encodings['attention_mask'])])]
         return item
@@ -301,9 +306,9 @@ def model_init():
     return EnsembleSequenceRegressor(seq_model_name, model_directory)
 
 def main():
-
     # also handles --deepspeed
     parser = HfArgumentParser(TrainingArguments)
+
     (training_args,) = parser.parse_args_into_dataclasses()
     print(training_args)
 
