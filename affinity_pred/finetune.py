@@ -342,9 +342,8 @@ def main():
     all_metrics = {}
     logger.info("*** Train ***")
     train_result = trainer.train()
-    metrics = train_result.metrics
-    metrics["train_n_objs"] = data_args.n_train
     trainer.save_model('ensemble_model_'+str(dist.get_world_size()))  # this also saves the tokenizer
+    metrics = train_result.metrics
 
     if trainer.is_world_process_zero():
         handle_metrics("train", metrics, training_args.output_dir)
