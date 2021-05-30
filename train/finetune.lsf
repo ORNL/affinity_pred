@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 #BSUB -P STF006
 #BSUB -W 24:00
-##BSUB -W 12:00
 #BSUB -q batch
 #BSUB -nnodes 2048
 #BSUB -J finetune
@@ -20,13 +19,16 @@ export CC=`which gcc`
 export GCC=`which gcc`
 export CXX=`which g++`
 
+# open files limit
+ulimit -n 14000
+
 OMP_NUM_THREADS=1 jsrun -x f37n03 -r 1 -g6 -a 6 -c 42 python ../affinity_pred/finetune.py \
     --deepspeed='ds_config_scale.json'\
     --output_dir='./results'\
     --num_train_epochs=20\
     --per_device_train_batch_size=16\
     --per_device_eval_batch_size=16\
-    --warmup_steps=0\
+    --warmup_steps=100\
     --learning_rate=3e-05\
     --weight_decay=3e-7\
     --logging_dir='./logs'\
