@@ -6,7 +6,7 @@
 #BSUB -J finetune
 #BSUB -o finetune.o%J
 #BSUB -e finetune.e%J
-#BSUB -w ended(1042528)
+#BSUB -w ended(1042549)
 
 activate_opence
 
@@ -23,7 +23,7 @@ export CXX=`which g++`
 # open files limit (for more than ~1000 nodes)
 ulimit -n 14000
 
-OMP_NUM_THREADS=7 jsrun -x f37n03 -r 1 -g6 -a 6 -c 42 -b rs python ../affinity_pred/finetune.py \
+OMP_NUM_THREADS=1 jsrun -x f37n03 -r 1 -g6 -a 6 -c 42 python ../affinity_pred/finetune.py \
     --deepspeed='ds_config_scale.json'\
     --output_dir='./results_n128'\
     --num_train_epochs=15\
