@@ -2,11 +2,10 @@
 #BSUB -P BIP214
 #BSUB -W 4:00
 #BSUB -q batch
-#BSUB -nnodes 128
+#BSUB -nnodes 768
 #BSUB -J finetune
 #BSUB -o finetune.o%J
 #BSUB -e finetune.e%J
-##BSUB -w ended(1042856)
 
 source activate /gpfs/alpine/world-shared/bip214/opence-env
 
@@ -24,19 +23,13 @@ export CXX=`which g++`
 ulimit -n 14000
 export OMP_NUM_THREADS=1
 
-BAD_HOSTS=`jsrun -r 1 -g6 -a 1 -c 42 --smpiargs="-disable_gpu_hooks" ./check_gpu.sh`
-BAD_HOSTS=`echo ${BAD_HOSTS} | paste -sd "," -`
-
-if [[ $BAD_HOSTS = *[!\ ]* ]]; then
-    echo "Bad GPUs on: $BAD_HOSTS"
-    BAD_HOSTS="-x ${BAD_HOSTS}"
-fi
+BAD_HOSTS="-x f37n03"
 
 # clear stale lock files
 rm -f `find -name *lock`
 
-jsrun $BAD_HOSTS -r 1 -g6 -a 6 -c 42 python ../affinity_pred/finetune.py \
-    --deepspeed='ds_config_scale.json'\
+jsrun $BAD_HOSTS -r 1 -g 6 -a 6 -c 42 python ../affinity_pred/finetune.py \
+    --deepspeed='ds_config_stage2.json'\
     --output_dir='./results_n128'\
     --num_train_epochs=15\
     --per_device_train_batch_size=16\

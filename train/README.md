@@ -14,6 +14,9 @@ beginning training on a *single* login node GPUs (to avoid a race condition when
 writing the files). Subsequently, the compute nodes can use the cached copy of the model
 and the datasets.
 
+Note: ZERO stage 2 appears much faster than stage 3 with many GPUs, potentially
+because of less communication overhead
+
 ```
 # cache dir
 export HF_HOME=/gpfs/alpine/world-shared/bip214/affinity_pred/train
@@ -24,7 +27,7 @@ module load cuda/10.2
 
 # this might crash with out of memory
 CUDA_VISIBLE_DEVICES=1 deepspeed ../affinity_pred/finetune.py \
---deepspeed='ds_config_scale.json' \
+--deepspeed='ds_config_stage2.json' \
 --output_dir='./results' \
 --num_train_epochs=20 \
 --fp16 \
