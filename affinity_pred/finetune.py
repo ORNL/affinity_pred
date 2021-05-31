@@ -14,6 +14,7 @@ from transformers import AdamW
 
 from transformers import HfArgumentParser
 from transformers.trainer_utils import is_main_process
+from transformers.trainer_utils import get_last_checkpoint
 
 from transformers.integrations import deepspeed_config, is_deepspeed_zero3_enabled
 import deepspeed
@@ -82,12 +83,15 @@ class MLP(torch.nn.Module):
     '''
     def __init__(self,ninput):
         super().__init__()
+        nhidden = 1000
         self.layers = torch.nn.Sequential(
-               torch.nn.Linear(ninput, 32),
+               torch.nn.Linear(ninput, nhidden),
                torch.nn.ReLU(),
-               torch.nn.Linear(32, 32),
+               torch.nn.Linear(nhidden, nhidden),
                torch.nn.ReLU(),
-               torch.nn.Linear(32, 1)
+               torch.nn.Linear(nhidden, nhidden),
+               torch.nn.ReLU(),
+               torch.nn.Linear(nhidden, 1)
 #        torch.nn.Linear(ninput, 1)
         )
 
@@ -310,7 +314,20 @@ def main():
     parser = HfArgumentParser(TrainingArguments)
 
     (training_args,) = parser.parse_args_into_dataclasses()
-    print(training_args)
+
+    last_checkpoint = None
+    if os.path.isdir(training_args.output_dir) and not training_args.overwrite_output_dir:
+        last_checkpoint = get_last_checkpoint(training_args.output_dir)
+        if last_checkpoint is None and len(os.listdir(training_args.output_dir)) > 0:
+            raise ValueError(
+                f"Output directory ({training_args.output_dir}) already exists and is not empty. "
+                "Use --overwrite_output_dir to overcome."
+            )
+        elif last_checkpoint is not None and training_args.resume_from_checkpoint is None:
+            logger.info(
+                f"Checkpoint detected, resuming training at {last_checkpoint}. To avoid this behavior, change "
+                "the `--output_dir` or add `--overwrite_output_dir` to train from scratch."
+            )
 
     # Setup logging
     logging.basicConfig(
@@ -341,7 +358,7 @@ def main():
 
     all_metrics = {}
     logger.info("*** Train ***")
-    train_result = trainer.train()
+    train_result = trainer.train(resume_from_checkpoint=last_checkpoint)
     trainer.save_model('ensemble_model_'+str(dist.get_world_size()))  # this also saves the tokenizer
     metrics = train_result.metrics
 
