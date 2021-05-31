@@ -164,4 +164,4 @@ class EnsembleSequenceRegressor(torch.nn.Module):
             loss = loss_fct(logits.view(-1, 1), labels.view(-1,1).half())
             return (loss, logits)
         else:
-            return output
+            return logits
