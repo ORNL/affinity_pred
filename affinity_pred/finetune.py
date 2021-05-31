@@ -367,7 +367,6 @@ def main():
         all_metrics.update(metrics)
 
         trainer.state.save_to_json(os.path.join(training_args.output_dir, "trainer_state.json"))
-        tokenizer.save_pretrained(training_args.output_dir)
         save_json(all_metrics, os.path.join(training_args.output_dir, "all_results.json"))
 
     return all_metrics

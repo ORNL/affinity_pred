@@ -6,6 +6,7 @@
 #BSUB -J finetune
 #BSUB -o finetune.o%J
 #BSUB -e finetune.e%J
+#BSUB -w ended(1043058)
 
 source activate /gpfs/alpine/world-shared/bip214/opence-env
 
@@ -31,7 +32,7 @@ rm -f `find -name *lock`
 jsrun $BAD_HOSTS -r 1 -g 6 -a 6 -c 42 python ../affinity_pred/finetune.py \
     --deepspeed='ds_config_stage2.json'\
     --output_dir='./results_n128'\
-    --num_train_epochs=15\
+    --num_train_epochs=30\
     --per_device_train_batch_size=16\
     --per_device_eval_batch_size=16\
     --warmup_steps=5\
