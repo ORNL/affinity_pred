@@ -1,8 +1,6 @@
 from transformers import BertModel, BertConfig
 from transformers.integrations import deepspeed_config, is_deepspeed_zero3_enabled
 
-from sparse_self_attention import BertSparseSelfAttention
-
 import torch
 from torch.nn import functional as F
 
@@ -61,6 +59,8 @@ class EnsembleSequenceRegressor(torch.nn.Module):
             config = seq_config
             sparsity_config = self.sparsity_config
             layers = self.seq_model.encoder.layer
+
+            from sparse_self_attention import BertSparseSelfAttention
 
             for layer in layers:
                 deepspeed_sparse_self_attn = BertSparseSelfAttention(
