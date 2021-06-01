@@ -1,6 +1,5 @@
 from transformers import BertModel, BertConfig
 from transformers.integrations import deepspeed_config, is_deepspeed_zero3_enabled
-import deepspeed
 
 from sparse_self_attention import BertSparseSelfAttention
 
