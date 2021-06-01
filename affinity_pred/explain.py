@@ -13,6 +13,7 @@ class EnsembleExplainer(object):
         model: EnsembleSequenceRegressor,
         seq_tokenizer,
         smiles_tokenizer,
+        internal_batch_size=None
     ):
         """
         Args:
@@ -27,6 +28,7 @@ class EnsembleExplainer(object):
 
         self.seq_tokenizer = seq_tokenizer
         self.smiles_tokenizer = smiles_tokenizer
+        self.internal_batch_size = internal_batch_size
 
     def _calculate_attributions(  # type: ignore
         self,
@@ -59,6 +61,7 @@ class EnsembleExplainer(object):
                     baselines=ref_input_ids,
                     return_convergence_delta=True,
                     additional_forward_args=attention_mask,
+                    internal_batch_size=self.internal_batch_size
                 )
         self.seq_attributions = seq_attributions[:self.model.max_seq_length].sum(dim=-1).squeeze(0)
         self.seq_attributions = self.seq_attributions / torch.norm(self.seq_attributions)
@@ -68,7 +71,7 @@ class EnsembleExplainer(object):
     def __call__(
         self,
         input_ids,
-        attention_mask 
+        attention_mask
     ):
         """
         Calculates attribution for `input_ids` using the model.

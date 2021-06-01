@@ -1,5 +1,8 @@
 from transformers import BertModel, BertConfig
 from transformers.integrations import deepspeed_config, is_deepspeed_zero3_enabled
+import deepspeed
+
+from sparse_self_attention import BertSparseSelfAttention
 
 import torch
 from torch.nn import functional as F
@@ -34,6 +37,7 @@ class EnsembleSequenceRegressor(torch.nn.Module):
         seq_config = BertConfig.from_pretrained(seq_model_name)
         seq_config.gradient_checkpointing=True
         self.seq_model = BertModel.from_pretrained(seq_model_name,config=seq_config)
+
         smiles_config = BertConfig.from_pretrained(smiles_model_name)
         smiles_config.gradient_checkpointing=True
         self.smiles_model = BertModel.from_pretrained(smiles_model_name,config=smiles_config)

@@ -18,7 +18,6 @@ from transformers.trainer_utils import get_last_checkpoint
 
 from transformers.integrations import deepspeed_config, is_deepspeed_zero3_enabled
 import deepspeed
-from sparse_self_attention import BertSparseSelfAttention
 
 from datasets import load_dataset
 from torch.utils.data import Dataset
