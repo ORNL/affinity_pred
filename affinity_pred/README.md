@@ -10,7 +10,7 @@ CUDA_VISIBLE_DEVICES=1 deepspeed explain_mpro.py  --output_dir='tmp' --fp16
 **With a compute allocation**
 
 ```
-# does not work on 16 GB V100
+# does not work on 16 GB V100 (should work on 32GB though)
 
 # (explanation does not work with ZERO v3)
 OMP_NUM_THREADS=1 jsrun -r 1 -g 6 -a 6 -c 42 python explain_mpro.py \
