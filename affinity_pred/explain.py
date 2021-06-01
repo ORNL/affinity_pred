@@ -43,7 +43,7 @@ class EnsembleExplainer(object):
                 and token != self.seq_tokenizer.sep_token_id] + \
             [self.seq_tokenizer.sep_token_id] for seq in input_ids.cpu().numpy()]
 
-        ref_input_ids[self.model.max_seq_length:] = [[self.smiles_tokenizer.cls_token_id] + \
+        ref_input_ids[:,self.model.max_seq_length:] = [[self.smiles_tokenizer.cls_token_id] + \
              [self.smiles_tokenizer.pad_token_id for token in seq[self.model.max_seq_length:]
                 if token != self.smiles_tokenizer.cls_token_id
                 and token != self.smiles_tokenizer.sep_token_id] + \
@@ -63,9 +63,9 @@ class EnsembleExplainer(object):
                     additional_forward_args=attention_mask,
                     internal_batch_size=self.internal_batch_size
                 )
-        self.seq_attributions = seq_attributions[:self.model.max_seq_length].sum(dim=-1).squeeze(0)
+        self.seq_attributions = seq_attributions.sum(dim=-1).squeeze(0)
         self.seq_attributions = self.seq_attributions / torch.norm(self.seq_attributions)
-        self.smiles_attributions = smiles_attributions[:self.model.max_seq_length].sum(dim=-1).squeeze(0)
+        self.smiles_attributions = smiles_attributions.sum(dim=-1).squeeze(0)
         self.smiles_attributions = self.smiles_attributions / torch.norm(self.smiles_attributions)
 
     def __call__(
@@ -84,4 +84,4 @@ class EnsembleExplainer(object):
             input_ids,
             attention_mask
         )
-        return self.seq_attributions, self.smiles_attributions
+        return self.seq_attributions.cpu().numpy(), self.smiles_attributions.cpu().numpy()
