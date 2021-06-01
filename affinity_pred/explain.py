@@ -84,4 +84,4 @@ class EnsembleExplainer(object):
             input_ids,
             attention_mask
         )
-        return self.seq_attribtuions, self.smiles_attributions
+        return self.seq_attributions, self.smiles_attributions
