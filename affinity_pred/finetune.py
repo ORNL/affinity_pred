@@ -147,19 +147,6 @@ class AffinityDataset(Dataset):
     def __len__(self):
         return len(self.dataset)
 
-data_all = load_dataset("jglaser/binding_affinity",split='train')
-
-f = 0.9
-split = data_all.train_test_split(train_size=f)
-train = split['train']
-validation = split['test']
-train.set_transform(encode)
-validation.set_transform(encode)
-
-
-train_dataset = AffinityDataset(train)
-val_dataset = AffinityDataset(validation)
-
 def compute_metrics(p: EvalPrediction):
     preds_list, out_label_list = p.predictions, p.label_ids
 
@@ -177,6 +164,18 @@ def main():
     parser = HfArgumentParser(TrainingArguments)
 
     (training_args,) = parser.parse_args_into_dataclasses()
+
+    # split the dataset
+    f = 0.9
+    data_all = load_dataset("jglaser/binding_affinity",split='train')
+    split = data_all.train_test_split(train_size=f, seed=training_args.seed)
+    train = split['train']
+    validation = split['test']
+    train.set_transform(encode)
+    validation.set_transform(encode)
+
+    train_dataset = AffinityDataset(train)
+    val_dataset = AffinityDataset(validation)
 
     last_checkpoint = None
     if os.path.isdir(training_args.output_dir) and not training_args.overwrite_output_dir:

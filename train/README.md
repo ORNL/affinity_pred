@@ -4,8 +4,10 @@
 - deepspeed
 - transformers 4.6.1
 
+```
 # with deepspeed, the system cuda version should be the same as the one in the conda environment
 module load cuda/10.2
+```
 
 *Training*
 
