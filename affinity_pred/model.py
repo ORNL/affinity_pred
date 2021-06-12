@@ -27,7 +27,7 @@ class MLP(torch.nn.Module):
         return self.layers(x)
 
 class EnsembleSequenceRegressor(torch.nn.Module):
-    def __init__(self, seq_model_name, smiles_model_name, max_seq_length, *args, **kwargs):
+    def __init__(self, seq_model_name, smiles_model_name, max_seq_length, sparse_attention=True, *args, **kwargs):
         super().__init__()
 
         # enable gradient checkpointing
@@ -45,11 +45,12 @@ class EnsembleSequenceRegressor(torch.nn.Module):
         self.config = BertConfig(hidden_size = self.seq_model.config.hidden_size + self.smiles_model.config.hidden_size)
 
         self.sparsity_config = None
-        try:
-            from deepspeed.ops.sparse_attention import FixedSparsityConfig as STConfig
-            self.sparsity_config = STConfig(num_heads=self.seq_model.config.num_attention_heads)
-        except:
-            pass
+        if sparse_attention:
+            try:
+                from deepspeed.ops.sparse_attention import FixedSparsityConfig as STConfig
+                self.sparsity_config = STConfig(num_heads=self.seq_model.config.num_attention_heads)
+            except:
+                pass
 
         if self.sparsity_config is not None:
             # replace the self attention layer of the sequence model
