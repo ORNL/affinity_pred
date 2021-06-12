@@ -1,7 +1,7 @@
 import torch
 
 import transformers
-from transformers import AutoModelForSequenceClassification, BertModel, RobertaModel, BertTokenizer, RobertaTokenizer
+from transformers import AutoModelForSequenceClassification, BertModel, RobertaModel, BertTokenizerFast, RobertaTokenizer
 from transformers import PreTrainedModel, BertConfig, RobertaConfig
 from transformers import Trainer, TrainingArguments
 from transformers.data.data_collator import default_data_collator
@@ -44,16 +44,16 @@ seq_model_name = "Rostlab/prot_bert_bfd" # for fine-tuning
 
 # this logic is necessary because online-downloading and caching doesn't seem to work
 if os.path.exists('seq_tokenizer'):
-    seq_tokenizer = BertTokenizer.from_pretrained('seq_tokenizer/', do_lower_case=False)
+    seq_tokenizer = BertTokenizerFast.from_pretrained('seq_tokenizer/', do_lower_case=False)
 else:
-    seq_tokenizer = BertTokenizer.from_pretrained(seq_model_name, do_lower_case=False)
+    seq_tokenizer = BertTokenizerFast.from_pretrained(seq_model_name, do_lower_case=False)
     seq_tokenizer.save_pretrained('seq_tokenizer/')
 
 model_directory = '/gpfs/alpine/world-shared/bip214/maskedevolution/models/bert_large_1B/model'
 tokenizer_directory =  '/gpfs/alpine/world-shared/bip214/maskedevolution/models/bert_large_1B/tokenizer'
 tokenizer_config = json.load(open(tokenizer_directory+'/config.json','r'))
 
-smiles_tokenizer =  BertTokenizer.from_pretrained(tokenizer_directory, **tokenizer_config)
+smiles_tokenizer =  BertTokenizerFast.from_pretrained(tokenizer_directory, **tokenizer_config)
 max_smiles_length = min(200,BertConfig.from_pretrained(model_directory).max_position_embeddings)
 
 # Mpro has 203 residues
