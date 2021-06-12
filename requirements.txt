@@ -1,7 +1,8 @@
 maskedevolution
 transformers>=4.6.1
 SentencePiece
-pytorch
+torch
 datasets
 protobuf
 seqeval
+distributed
