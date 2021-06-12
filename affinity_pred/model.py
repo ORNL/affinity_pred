@@ -60,7 +60,7 @@ class EnsembleSequenceRegressor(torch.nn.Module):
             sparsity_config = self.sparsity_config
             layers = self.seq_model.encoder.layer
 
-            from sparse_self_attention import BertSparseSelfAttention
+            from affinity_pred.sparse_self_attention import BertSparseSelfAttention
 
             for layer in layers:
                 deepspeed_sparse_self_attn = BertSparseSelfAttention(
