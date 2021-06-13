@@ -2,7 +2,7 @@
 #BSUB -P STF006
 #BSUB -W 6:00
 #BSUB -q batch
-#BSUB -nnodes 600
+#BSUB -nnodes 768
 #BSUB -alloc_flags NVME
 #BSUB -J infer
 #BSUB -o infer.o%J
@@ -24,8 +24,10 @@ export NUM_WORKERS=$((6*${NUM_WORKER_NODES}))
 rm -f `find -name *lock`
 
 jsrun -n1 -g 1 -a1 -c 42 dask-scheduler --interface ib0 --scheduler-file my-scheduler.json &
-jsrun -n ${NUM_WORKERS} -a 1 -g 1 -c 7 -b rs dask-worker --scheduler-file my-scheduler.json --death-timeout 60 --interface ib0 --nthreads 1 --memory-limit 160GB --local-directory /mnt/bb/$USER &
+jsrun -n ${NUM_WORKERS} -a 1 -g 1 -c 7 -b rs dask-worker --scheduler-file my-scheduler.json --death-timeout 60 --interface ib0 --nthreads 1 --memory-limit 160GB --local-directory /mnt/bb/$USER --death-timeout 120 &
 
 sleep 120
 python ../affinity_pred/infer.py --per_device_eval_batch_size=32 --output_dir='results'
 
+# kill background jsrun's
+jobs -p | xargs -I{} kill -9 -{}
