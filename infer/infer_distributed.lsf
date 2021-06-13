@@ -20,13 +20,18 @@ export NUM_NODES=`cat ${LSB_DJOB_HOSTFILE[0]} | sort | uniq | grep -v login | gr
 export NUM_WORKER_NODES=$((${NUM_NODES}-1))
 export NUM_WORKERS=$((6*${NUM_WORKER_NODES}))
 
+export DASK_DISTRIBUTED__COMM__TIMEOUTS__CONNECT=120s
+export DASK_DISTRIBUTED__COMM__TIMEOUTS__TCP=600s
+export DASK_DISTRIBUTED__COMM__RETRY__DELAY__MIN=1s
+export DASK_DISTRIBUTED__COMM__RETRY__DELAY__MAX=60s
+
 # clear stale lock files
 rm -f `find -name *lock`
 
 jsrun -n1 -g 1 -a1 -c 42 dask-scheduler --interface ib0 --scheduler-file my-scheduler.json &
 jsrun -n ${NUM_WORKERS} -a 1 -g 1 -c 7 -b rs dask-worker --scheduler-file my-scheduler.json --death-timeout 60 --interface ib0 --nthreads 1 --memory-limit 160GB --local-directory /mnt/bb/$USER --death-timeout 120 &
 
-sleep 120
+sleep 180
 python ../affinity_pred/infer.py --per_device_eval_batch_size=32 --output_dir='results'
 
 # kill background jsrun's

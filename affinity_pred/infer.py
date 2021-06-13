@@ -102,7 +102,6 @@ def main():
 
     def transform_df(df):
         return df['smiles_can'].apply(transform)
-        return
 
     # load the model and predict a batch
     def predict(df, return_dict=False):
@@ -114,7 +113,6 @@ def main():
         trainer = Trainer(
             model_init=model_init,                # the instantiated 🤗 Transformers model to be trained
             args=training_args,                   # training arguments, defined above
-    #        compute_metrics = compute_metrics,    # evaluation metric
         )
 
         checkpoint = torch.load('../train/ensemble_model_4608/pytorch_model.bin')
@@ -122,7 +120,7 @@ def main():
 
         x = transform_df(df)
         pred = trainer.predict(x)
-        df['affinity'] = pred.predictions
+        df['affinity'] = pd.Series(data=pred.predictions, index=df.index)
         if return_dict:
             return df, pred
         else:
