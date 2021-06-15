@@ -34,26 +34,27 @@ class EnsembleExplainer(object):
         self,
         input_ids,
         attention_mask,
+        **kwargs
     ):
 
         ref_input_ids = np.array(input_ids.cpu().numpy())
-        ref_input_ids[:,0:self.model.max_seq_length] = [[self.seq_tokenizer.cls_token_id] + \
-            [self.seq_tokenizer.pad_token_id for token in seq[:self.model.max_seq_length] 
-                if token != self.seq_tokenizer.cls_token_id
-                and token != self.seq_tokenizer.sep_token_id] + \
-            [self.seq_tokenizer.sep_token_id] for seq in input_ids.cpu().numpy()]
+        ref_input_ids[:,0:self.model.max_seq_length] = [
+            [self.seq_tokenizer.pad_token_id
+                if token != self.seq_tokenizer.cls_token_id and token != self.seq_tokenizer.sep_token_id
+                else token for token in seq[:self.model.max_seq_length] 
+            ] for seq in input_ids.cpu().numpy()]
 
-        ref_input_ids[:,self.model.max_seq_length:] = [[self.smiles_tokenizer.cls_token_id] + \
-             [self.smiles_tokenizer.pad_token_id for token in seq[self.model.max_seq_length:]
-                if token != self.smiles_tokenizer.cls_token_id
-                and token != self.smiles_tokenizer.sep_token_id] + \
-            [self.smiles_tokenizer.sep_token_id] for seq in input_ids.cpu().numpy()]
+        ref_input_ids[:,self.model.max_seq_length:] = [
+            [self.smiles_tokenizer.pad_token_id
+                if token != self.smiles_tokenizer.cls_token_id and token != self.smiles_tokenizer.sep_token_id
+                else token for token in seq[self.model.max_seq_length:] 
+            ] for seq in input_ids.cpu().numpy()]
 
         ref_input_ids = torch.tensor(ref_input_ids)
         ref_input_ids = ref_input_ids.to(input_ids.device)
 
         lig = LayerIntegratedGradients(self.model.forward,
-            [self.model.seq_model.get_input_embeddings(), self.model.smiles_model.get_input_embeddings()],
+            [self.model.seq_model.get_input_embeddings(), self.model.smiles_model.get_input_embeddings()]
         )
 
         (seq_attributions, smiles_attributions), self.delta = lig.attribute(
@@ -61,7 +62,8 @@ class EnsembleExplainer(object):
                     baselines=ref_input_ids,
                     return_convergence_delta=True,
                     additional_forward_args=attention_mask,
-                    internal_batch_size=self.internal_batch_size
+                    internal_batch_size=self.internal_batch_size,
+                    **kwargs
                 )
         self.seq_attributions = seq_attributions.sum(dim=-1).squeeze(0)
         self.seq_attributions = self.seq_attributions / torch.norm(self.seq_attributions)
@@ -71,7 +73,8 @@ class EnsembleExplainer(object):
     def __call__(
         self,
         input_ids,
-        attention_mask
+        attention_mask,
+        **kwargs
     ):
         """
         Calculates attribution for `input_ids` using the model.
@@ -82,6 +85,7 @@ class EnsembleExplainer(object):
 
         self._calculate_attributions(
             input_ids,
-            attention_mask
+            attention_mask,
+            **kwargs
         )
         return self.seq_attributions.cpu().numpy(), self.smiles_attributions.cpu().numpy()
