@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 #BSUB -P STF006
-#BSUB -W 6:00
-#BSUB -q batch
-#BSUB -nnodes 95
+#BSUB -W 0:10
+#BSUB -q debug
+#BSUB -nnodes 20
 #BSUB -J infer
 #BSUB -o infer.o%J
 #BSUB -e infer.e%J
@@ -31,7 +31,5 @@ jsrun -r 6 -a 1 -g 1 -c 7 -b none --smpiargs="-tcp" python ../affinity_pred/infe
     --output_dir='results' \
     --deepspeed='ds_config_stage1.json' \
     --checkpoint='../train/ensemble_model_4608/pytorch_model.bin' \
-    --input_path='/gpfs/alpine/world-shared/bip214/Enamine_SMILES_canonical' \
-    --output_path='/gpfs/alpine/world-shared/bip214/Enamine_affinity' \
-    --seq='SGFRKMAFPSGKVEGCMVQVTCGTTTLNGLWLDDVVYCPRHVICTSEDMLNPNYEDLLIRKSNHNFLVQAGNVQLRVIGHSMQNCVLKLKVDTANPKTPKYKFVRIQPGQTFSVLACYNGSPSGVYQCAMRPNFTIKGSFLNGSCGSVGFNIDYDCVSFCYMHHMELPTGVHAGTDLEGNFYGPFVDRQTAQAAGTDTTITVNVLAWLYAAVINGDRWFLNRFTTTLNDFNLVAMKYNYEPLTQDHVDILGPLSAQTGIAVLDMCASLKELLQNGMNGRTILGSALLEDEFTPFDVVRQCSGVTFQ' \
-    --smiles_column='smiles_can'
+    --input_path='/gpfs/alpine/world-shared/bip214/binding_affinity/data/dude' \
+    --output_path='/gpfs/alpine/world-shared/bip214/binding_affinity/data/dude_predict'

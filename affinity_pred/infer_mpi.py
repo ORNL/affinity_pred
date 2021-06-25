@@ -25,6 +25,9 @@ from torch.nn import functional as F
 
 import toolz
 import time
+from functools import partial
+
+import traceback
 
 from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score
 from sklearn.metrics import mean_squared_error, mean_absolute_error
@@ -93,6 +96,27 @@ class InferenceArguments:
         default=1
     )
 
+    input_path: str = field(
+        default=None
+    )
+
+    output_path: str = field(
+        default=None
+    )
+
+    seq: str = field(
+        default=None
+    )
+
+    smiles_column: str = field(
+        default='smiles'
+    )
+
+    seq_column: str = field(
+        default='seq'
+    )
+
+#
 # parser - used to handle deepspeed case as well
 parser = HfArgumentParser([TrainingArguments,InferenceArguments])
 training_args, inference_args = parser.parse_args_into_dataclasses()
@@ -123,14 +147,16 @@ def main(fn):
                 item.pop('seq')
                 return item
 
-        def transform(smiles_canonical):
-            # 5R84
-            seq = 'SGFRKMAFPSGKVEGCMVQVTCGTTTLNGLWLDDVVYCPRHVICTSEDMLNPNYEDLLIRKSNHNFLVQAGNVQLRVIGHSMQNCVLKLKVDTANPKTPKYKFVRIQPGQTFSVLACYNGSPSGVYQCAMRPNFTIKGSFLNGSCGSVGFNIDYDCVSFCYMHHMELPTGVHAGTDLEGNFYGPFVDRQTAQAAGTDTTITVNVLAWLYAAVINGDRWFLNRFTTTLNDFNLVAMKYNYEPLTQDHVDILGPLSAQTGIAVLDMCASLKELLQNGMNGRTILGSALLEDEFTPFDVVRQCSGVTFQ'
+        def transform(seq, smiles_canonical):
             item = {'seq': [seq], 'smiles': [smiles_canonical]}
             return encode_canonical(item)
 
         def transform_df(df):
-            return df['smiles_can'].apply(transform).values
+            if inference_args.seq is not None:
+                return df[inference_args.smiles_column].apply(lambda x: transform(inference_args.seq, x)).values
+            else:
+                assert inference_args.seq is None
+                return df[[inference_args.seq_column,inference_args.smiles_column]].apply(lambda x: transform(*x),axis=1).values
 
         # load the model and predict a batch
         def predict(df, return_dict=False):
@@ -162,13 +188,15 @@ def main(fn):
         df_pred = predict(df)
 
         base = os.path.basename(fn)
-        df_pred.to_parquet('/gpfs/alpine/world-shared/bip214/Enamine_affinity/'+base)
+        df_pred.to_parquet(inference_args.output_path+'/'+base)
     except Exception as e:
         print(repr(e))
+        traceback.print_exc()
 
 if __name__ == "__main__":
     import glob
-    fns = glob.glob('/gpfs/alpine/world-shared/bip214/Enamine_SMILES_canonical/*parquet')
+    fns = glob.glob(inference_args.input_path+'/*parquet')
+    fns = [f for f in fns if not os.path.exists(inference_args.output_path+'/'+os.path.basename(f))]
 
     comm = MPI.COMM_WORLD
 
