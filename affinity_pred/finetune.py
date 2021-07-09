@@ -115,7 +115,7 @@ def encode(item):
                                      add_special_tokens=True,
                                      max_length=max_seq_length)
 
-        smiles_encodings = smiles_tokenizer(item['smiles'][0],
+        smiles_encodings = smiles_tokenizer(item['smiles_can'][0],
                                             padding='max_length',
                                             max_length=max_smiles_length,
                                             add_special_tokens=True,
@@ -138,7 +138,7 @@ class AffinityDataset(Dataset):
         item['labels'] = float(affinity)
 
         # drop the non-encoded input
-        item.pop('smiles')
+        item.pop('smiles_can')
         item.pop('seq')
         item.pop('neg_log10_affinity_M')
         item.pop('affinity')
@@ -148,7 +148,7 @@ class AffinityDataset(Dataset):
         return len(self.dataset)
 
 def compute_metrics(p: EvalPrediction):
-    preds_list, out_label_list = p.predictions, p.label_ids
+    preds_list, out_label_list = p.predictions[:,0], p.label_ids
 
     return {
         "mse": mean_squared_error(out_label_list, preds_list),
@@ -157,7 +157,8 @@ def compute_metrics(p: EvalPrediction):
 
 
 def model_init():
-    return EnsembleSequenceRegressor(seq_model_name, model_directory,  max_seq_length=max_seq_length)
+    return EnsembleSequenceRegressor(seq_model_name, model_directory,  max_seq_length=max_seq_length,
+                                     sparse_attention=True)
 
 def main():
     # also handles --deepspeed
@@ -165,10 +166,18 @@ def main():
 
     (training_args,) = parser.parse_args_into_dataclasses()
 
+    # seed the weight initialization
+    torch.manual_seed(training_args.seed)
+
     # split the dataset
-    f = 0.9
     data_all = load_dataset("jglaser/binding_affinity",split='train')
-    split = data_all.train_test_split(train_size=f, seed=training_args.seed)
+
+    # keep a small holdout data set
+    split_test = data_all.train_test_split(train_size=0.99, seed=0)
+
+    # further split the train set
+    f = 0.9
+    split = split_test['train'].train_test_split(train_size=f, seed=training_args.seed)
     train = split['train']
     validation = split['test']
     train.set_transform(encode)
@@ -221,7 +230,7 @@ def main():
     all_metrics = {}
     logger.info("*** Train ***")
     train_result = trainer.train(resume_from_checkpoint=last_checkpoint)
-    trainer.save_model('ensemble_model_'+str(dist.get_world_size()))  # this also saves the tokenizer
+    trainer.save_model('ensemble_model_can')  # this also saves the tokenizer
     metrics = train_result.metrics
 
     if trainer.is_world_process_zero():
