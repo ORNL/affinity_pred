@@ -92,8 +92,8 @@ class MLP(torch.nn.Module):
                torch.nn.ReLU(),
                torch.nn.Linear(nhidden, nhidden),
                torch.nn.ReLU(),
-               torch.nn.Linear(nhidden, 2)
-#        torch.nn.Linear(ninput, 1)
+               torch.nn.Linear(nhidden, 1)
+#        torch.nn.Linear(ninput, 2)
         )
 
     def forward(self, x):
@@ -153,9 +153,11 @@ class EnsembleSequenceRegressor(torch.nn.Module):
 
         if is_deepspeed_zero3_enabled():
             with deepspeed.zero.Init(config=deepspeed_config()):
-                self.cls = MLP(seq_config.hidden_size+smiles_config.hidden_size)
+                self.mu = MLP(seq_config.hidden_size+smiles_config.hidden_size)
+                self.var = MLP(seq_config.hidden_size+smiles_config.hidden_size)
         else:
-            self.cls = MLP(seq_config.hidden_size+smiles_config.hidden_size)
+            self.mu = MLP(seq_config.hidden_size+smiles_config.hidden_size)
+            self.var = MLP(seq_config.hidden_size+smiles_config.hidden_size)
 
     def pad_to_block_size(self,
                           block_size,
@@ -234,13 +236,13 @@ class EnsembleSequenceRegressor(torch.nn.Module):
         # output is a tuple (hidden_state, pooled_output)
         last_hidden_states = torch.cat([output[1] for output in outputs], dim=1)
 
-        logits = self.cls(last_hidden_states).squeeze(-1)
+        mu = self.mu(last_hidden_states)
+        var = self.var(last_hidden_states)
+        var = torch.nn.Softplus()(var) # make positive
+
+        logits = torch.cat([mu,var],dim=1)
 
         if labels is not None:
-            # crossentropyloss: ttps://pytorch.org/docs/stable/nn.html#crossentropyloss
-            mu = logits.view(-1, 2)[:,0]
-            var = logits.view(-1, 2)[:,1]
-            var = torch.nn.Softplus()(var) # make positive
             loss = gaussian_nll_loss(mu, labels.view(-1,1).half(), var)
             return (loss, logits)
         else:

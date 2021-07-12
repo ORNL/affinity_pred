@@ -230,7 +230,7 @@ def main():
     all_metrics = {}
     logger.info("*** Train ***")
     train_result = trainer.train(resume_from_checkpoint=last_checkpoint)
-    trainer.save_model('ensemble_model_can')  # this also saves the tokenizer
+    trainer.save_model(training_args.output_dir)  # this also saves the tokenizer
     metrics = train_result.metrics
 
     if trainer.is_world_process_zero():
