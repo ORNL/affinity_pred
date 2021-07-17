@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+#BSUB -P STF006
+#BSUB -W 24:00
+#BSUB -q batch
+#BSUB -nnodes 4200
+#BSUB -J infer_ensemble
+#BSUB -o infer_ensemble.o%J
+#BSUB -e infer_ensemble.e%J
+
+module load open-ce/1.1.3-py38-0
+conda activate /gpfs/alpine/world-shared/bip214/opence-env
+
+module load cuda/10.2
+
+# open files limit (for more than ~1000 nodes)
+export OMP_NUM_THREADS=1
+export PYTHONUNBUFFERED=1
+
+export TOKENIZERS_PARALLELISM=false
+export TORCH_EXTENSIONS_DIR=/gpfs/alpine/world-shared/bip214/affinity_pred/train/build
+
+# undo some conda env variables
+export CC=`which gcc`
+export GCC=`which gcc`
+export CXX=`which g++`
+
+# clear stale lock files
+rm -f `find -name *lock`
+
+for ENSEMBLE_ID in `seq 1 5`; do
+    jsrun -n 5040 -a 1 -g 1 -c 7 -b none --smpiargs="-tcp" python ../affinity_pred/infer_mpi.py \
+        --per_device_eval_batch_size=32\
+        --output_dir='results' \
+        --deepspeed='ds_config_stage1.json' \
+        --checkpoint=../train/results_ensemble_${ENSEMBLE_ID}/pytorch_model.bin \
+        --input_path='/gpfs/alpine/world-shared/bip214/Enamine_SMILES_canonical/*parquet' \
+        --output_path=/gpfs/alpine/world-shared/bip214/Enamine_affinity_${ENSEMBLE_ID} \
+        --seq='SGFRKMAFPSGKVEGCMVQVTCGTTTLNGLWLDDVVYCPRHVICTSEDMLNPNYEDLLIRKSNHNFLVQAGNVQLRVIGHSMQNCVLKLKVDTANPKTPKYKFVRIQPGQTFSVLACYNGSPSGVYQCAMRPNFTIKGSFLNGSCGSVGFNIDYDCVSFCYMHHMELPTGVHAGTDLEGNFYGPFVDRQTAQAAGTDTTITVNVLAWLYAAVINGDRWFLNRFTTTLNDFNLVAMKYNYEPLTQDHVDILGPLSAQTGIAVLDMCASLKELLQNGMNGRTILGSALLEDEFTPFDVVRQCSGVTFQ' \
+        --smiles_column='smiles_can' &
+done
+wait

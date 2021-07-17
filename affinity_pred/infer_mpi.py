@@ -180,7 +180,8 @@ def main(fn):
 
             print('{} samples/second'.format(out.metrics['test_samples_per_second']))
 
-            df['affinity'] = pd.Series(data=out.predictions, index=df.index).astype('float32')
+            df['affinity_mean'] = pd.Series(data=out.predictions[:,0], index=df.index).astype('float32')
+            df['affinity_var'] = pd.Series(data=out.predictions[:,1], index=df.index).astype('float32')
             return df
 
         df = pd.read_parquet(fn)
@@ -195,7 +196,7 @@ def main(fn):
 
 if __name__ == "__main__":
     import glob
-    fns = glob.glob(inference_args.input_path+'/*parquet')
+    fns = glob.glob(inference_args.input_path)
     fns = [f for f in fns if not os.path.exists(inference_args.output_path+'/'+os.path.basename(f))]
 
     comm = MPI.COMM_WORLD
