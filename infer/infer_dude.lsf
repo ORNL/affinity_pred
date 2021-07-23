@@ -31,5 +31,5 @@ jsrun -r 6 -a 1 -g 1 -c 7 -b none --smpiargs="-tcp" python ../affinity_pred/infe
     --output_dir='results' \
     --deepspeed='ds_config_stage1.json' \
     --checkpoint='../train/ensemble_model_4608/pytorch_model.bin' \
-    --input_path='/gpfs/alpine/world-shared/bip214/binding_affinity/data/dude' \
+    --input_path='/gpfs/alpine/world-shared/bip214/binding_affinity/data/dude/*parquet' \
     --output_path='/gpfs/alpine/world-shared/bip214/binding_affinity/data/dude_predict'
