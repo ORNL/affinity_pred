@@ -177,8 +177,7 @@ def main():
 
     # further split the train set
     f = 0.9
-#    split = split_test['train'].train_test_split(train_size=f, seed=training_args.seed)
-    split = split_test['train'].train_test_split(train_size=125, test_size=25, seed=training_args.seed)
+    split = split_test['train'].train_test_split(train_size=f, seed=training_args.seed)
     train = split['train']
     validation = split['test']
     train.set_transform(encode)
