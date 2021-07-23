@@ -1,7 +1,11 @@
 from transformers import BertModel, BertConfig
+from transformers.models.bert.modeling_bert import BertAttention, BertIntermediate, BertOutput
+from transformers.modeling_utils import apply_chunking_to_forward
+
 from transformers.integrations import deepspeed_config, is_deepspeed_zero3_enabled
 
 import torch
+import torch.nn as nn
 from torch.nn import functional as F
 from torch import Tensor
 
@@ -78,6 +82,55 @@ def gaussian_nll_loss(
     else:
         return loss
 
+class CrossAttentionLayer(nn.Module):
+    def __init__(self, config, other_config, sparse_attention=True):
+        super().__init__()
+        self.chunk_size_feed_forward = config.chunk_size_feed_forward
+        self.seq_len_dim = 1
+
+        self.crossattention = BertAttention(config)
+
+        self.intermediate = BertIntermediate(config)
+        self.output = BertOutput(config)
+
+        self.crossattention.self.key = nn.Linear(other_config.hidden_size, self.crossattention.self.all_head_size)
+        self.crossattention.self.value = nn.Linear(other_config.hidden_size, self.crossattention.self.all_head_size)
+
+    def forward(
+        self,
+        hidden_states,
+        attention_mask=None,
+        head_mask=None,
+        encoder_hidden_states=None,
+        encoder_attention_mask=None,
+        past_key_value=None,
+        output_attentions=False,
+    ):
+        cross_attention_outputs = self.crossattention(
+            hidden_states=hidden_states,
+            attention_mask=attention_mask,
+            head_mask=head_mask,
+            encoder_hidden_states=encoder_hidden_states,
+            encoder_attention_mask=encoder_attention_mask,
+            output_attentions=output_attentions,
+            past_key_value=None
+        )
+        attention_output = cross_attention_outputs[0]
+        outputs = cross_attention_outputs[1:-1]  # add cross attentions if we output attention weights
+
+        # add cross-attn cache to positions 3,4 of present_key_value tuple
+        layer_output = apply_chunking_to_forward(
+            self.feed_forward_chunk, self.chunk_size_feed_forward, self.seq_len_dim, attention_output
+        )
+        outputs = (layer_output,) + outputs
+
+        return outputs
+
+    def feed_forward_chunk(self, attention_output):
+        intermediate_output = self.intermediate(attention_output)
+        layer_output = self.output(intermediate_output, attention_output)
+        return layer_output
+
 class MLP(torch.nn.Module):
     '''
     Multilayer Perceptron with two outputs
@@ -151,13 +204,17 @@ class EnsembleSequenceRegressor(torch.nn.Module):
             self.pad_token_id = seq_config.pad_token_id if hasattr(
                 seq_config, 'pad_token_id') and seq_config.pad_token_id is not None else 0
 
+        # Cross-attention layers
+        self.cross_attention_seq = CrossAttentionLayer(config=seq_config,other_config=smiles_config)
+        self.cross_attention_smiles = CrossAttentionLayer(config=smiles_config,other_config=seq_config)
+
         if is_deepspeed_zero3_enabled():
             with deepspeed.zero.Init(config=deepspeed_config()):
-                self.mu = MLP(seq_config.hidden_size+smiles_config.hidden_size)
-                self.var = MLP(seq_config.hidden_size+smiles_config.hidden_size)
+                self.mu = torch.nn.Linear(seq_config.hidden_size+smiles_config.hidden_size,1)
+                self.var = torch.nn.Linear(seq_config.hidden_size+smiles_config.hidden_size,1)
         else:
-            self.mu = MLP(seq_config.hidden_size+smiles_config.hidden_size)
-            self.var = MLP(seq_config.hidden_size+smiles_config.hidden_size)
+            self.mu = torch.nn.Linear(seq_config.hidden_size+smiles_config.hidden_size,1)
+            self.var = torch.nn.Linear(seq_config.hidden_size+smiles_config.hidden_size,1)
 
     def pad_to_block_size(self,
                           block_size,
@@ -223,18 +280,32 @@ class EnsembleSequenceRegressor(torch.nn.Module):
             sequence_output = self.sparse_attention_utils.unpad_sequence_output(
                 pad_len_1, sequence_output)
 
-        pooled_output = self.seq_model.pooler(sequence_output) if self.seq_model.pooler is not None else None
-        outputs.append((sequence_output, pooled_output))
-
         # smiles model with full attention
         input_ids_2 = input_ids[:,self.max_seq_length:]
         attention_mask_2 = attention_mask[:,self.max_seq_length:]
-        outputs.append(self.smiles_model(input_ids=input_ids_2,
+        encoder_outputs = self.smiles_model(input_ids=input_ids_2,
                                          attention_mask=attention_mask_2,
-                                         return_dict=False))
+                                         return_dict=False)
+        smiles_output = encoder_outputs[0]
+
+        # cross attentions
+        attention_output_1 = self.cross_attention_seq(
+            hidden_states=sequence_output,
+            attention_mask=attention_mask_1,
+            encoder_hidden_states=smiles_output,
+            encoder_attention_mask=attention_mask_2)
+
+        attention_output_2 = self.cross_attention_smiles(
+            hidden_states=smiles_output,
+            attention_mask=attention_mask_2,
+            encoder_hidden_states=sequence_output,
+            encoder_attention_mask=attention_mask_1)
+
+        pooled_seq = self.seq_model.pooler(attention_output_1[0])
+        pooled_smiles = self.smiles_model.pooler(attention_output_2[0])
 
         # output is a tuple (hidden_state, pooled_output)
-        last_hidden_states = torch.cat([output[1] for output in outputs], dim=1)
+        last_hidden_states = torch.cat([pooled_seq, pooled_smiles], dim=1)
 
         mu = self.mu(last_hidden_states)
         var = self.var(last_hidden_states)
