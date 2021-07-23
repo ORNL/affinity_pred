@@ -76,7 +76,7 @@ tokenizer_config = json.load(open(tokenizer_directory+'/config.json','r'))
 
 smiles_tokenizer =  BertTokenizer.from_pretrained(tokenizer_directory, **tokenizer_config)
 max_smiles_length = min(200,BertConfig.from_pretrained(model_directory).max_position_embeddings)
-max_seq_length = min(4096,BertConfig.from_pretrained(seq_model_name).max_position_embeddings)
+max_seq_length = min(512,BertConfig.from_pretrained(seq_model_name).max_position_embeddings)
 
 class MLP(torch.nn.Module):
     '''
@@ -148,7 +148,7 @@ class AffinityDataset(Dataset):
         return len(self.dataset)
 
 def compute_metrics(p: EvalPrediction):
-    preds_list, out_label_list = p.predictions[:,0], p.label_ids
+    preds_list, out_label_list = p.predictions[0][:,0], p.label_ids
 
     return {
         "mse": mean_squared_error(out_label_list, preds_list),
@@ -158,7 +158,7 @@ def compute_metrics(p: EvalPrediction):
 
 def model_init():
     return EnsembleSequenceRegressor(seq_model_name, model_directory,  max_seq_length=max_seq_length,
-                                     sparse_attention=True)
+                                     sparse_attention=False)
 
 def main():
     # also handles --deepspeed
@@ -177,7 +177,8 @@ def main():
 
     # further split the train set
     f = 0.9
-    split = split_test['train'].train_test_split(train_size=f, seed=training_args.seed)
+#    split = split_test['train'].train_test_split(train_size=f, seed=training_args.seed)
+    split = split_test['train'].train_test_split(train_size=125, test_size=25, seed=training_args.seed)
     train = split['train']
     validation = split['test']
     train.set_transform(encode)

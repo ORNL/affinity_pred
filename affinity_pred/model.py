@@ -83,7 +83,7 @@ def gaussian_nll_loss(
         return loss
 
 class CrossAttentionLayer(nn.Module):
-    def __init__(self, config, other_config, sparse_attention=True):
+    def __init__(self, config, other_config):
         super().__init__()
         self.chunk_size_feed_forward = config.chunk_size_feed_forward
         self.seq_len_dim = 1
@@ -249,15 +249,7 @@ class EnsembleSequenceRegressor(torch.nn.Module):
         # sequence model with sparse attention
         input_shape = input_ids_1.size()
         device = input_ids_1.device
-        extended_attention_mask: torch.Tensor = self.seq_model.get_extended_attention_mask(attention_mask_1, input_shape, device)
-        if self.seq_model.config.is_decoder and encoder_hidden_states is not None:
-            encoder_batch_size, encoder_sequence_length, _ = encoder_hidden_states.size()
-            encoder_hidden_shape = (encoder_batch_size, encoder_sequence_length)
-            if encoder_attention_mask is None:
-                encoder_attention_mask = torch.ones(encoder_hidden_shape, device=device)
-            encoder_extended_attention_mask = self.seq_model.invert_attention_mask(encoder_attention_mask)
-        else:
-            encoder_extended_attention_mask = None
+        extended_attention_mask_1: torch.Tensor = self.seq_model.get_extended_attention_mask(attention_mask_1, input_shape, device)
 
         if self.sparsity_config is not None:
             pad_len_1, input_ids_1, attention_mask_1 = self.pad_to_block_size(
@@ -271,7 +263,7 @@ class EnsembleSequenceRegressor(torch.nn.Module):
                 )
         encoder_outputs = self.seq_model.encoder(
             embedding_output,
-            attention_mask=extended_attention_mask,
+            attention_mask=extended_attention_mask_1,
             head_mask=head_mask
             )
         sequence_output = encoder_outputs[0]
@@ -282,7 +274,9 @@ class EnsembleSequenceRegressor(torch.nn.Module):
 
         # smiles model with full attention
         input_ids_2 = input_ids[:,self.max_seq_length:]
+        input_shape = input_ids_2.size()
         attention_mask_2 = attention_mask[:,self.max_seq_length:]
+        extended_attention_mask_2: torch.Tensor = self.smiles_model.get_extended_attention_mask(attention_mask_2, input_shape, device)
         encoder_outputs = self.smiles_model(input_ids=input_ids_2,
                                          attention_mask=attention_mask_2,
                                          return_dict=False)
@@ -293,13 +287,13 @@ class EnsembleSequenceRegressor(torch.nn.Module):
             hidden_states=sequence_output,
             attention_mask=attention_mask_1,
             encoder_hidden_states=smiles_output,
-            encoder_attention_mask=attention_mask_2)
+            encoder_attention_mask=extended_attention_mask_2)
 
         attention_output_2 = self.cross_attention_smiles(
             hidden_states=smiles_output,
             attention_mask=attention_mask_2,
             encoder_hidden_states=sequence_output,
-            encoder_attention_mask=attention_mask_1)
+            encoder_attention_mask=extended_attention_mask_1)
 
         pooled_seq = self.seq_model.pooler(attention_output_1[0])
         pooled_smiles = self.smiles_model.pooler(attention_output_2[0])
