@@ -2,7 +2,7 @@
 #BSUB -P STF006
 #BSUB -W 24:00
 #BSUB -q batch
-#BSUB -nnodes 4200
+#BSUB -nnodes 4225
 #BSUB -J infer_ensemble
 #BSUB -o infer_ensemble.o%J
 #BSUB -e infer_ensemble.e%J

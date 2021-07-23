@@ -195,12 +195,12 @@ def main(fn):
         traceback.print_exc()
 
 if __name__ == "__main__":
-    import glob
-    fns = glob.glob(inference_args.input_path)
-    fns = [f for f in fns if not os.path.exists(inference_args.output_path+'/'+os.path.basename(f))]
-
     comm = MPI.COMM_WORLD
 
     with MPICommExecutor(comm, root=0) as executor:
         if executor is not None:
+            import glob
+            fns = glob.glob(inference_args.input_path)
+            fns = [f for f in fns if not os.path.exists(inference_args.output_path+'/'+os.path.basename(f))]
+
             executor.map(main, fns)
