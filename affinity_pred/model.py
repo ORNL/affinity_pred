@@ -295,11 +295,9 @@ class EnsembleSequenceRegressor(torch.nn.Module):
             encoder_hidden_states=sequence_output,
             encoder_attention_mask=extended_attention_mask_1)
 
-        pooled_seq = self.seq_model.pooler(attention_output_1[0])
-        pooled_smiles = self.smiles_model.pooler(attention_output_2[0])
-
-        # output is a tuple (hidden_state, pooled_output)
-        last_hidden_states = torch.cat([pooled_seq, pooled_smiles], dim=1)
+        mean_seq = torch.mean(attention_output_1[0],axis=1)
+        mean_smiles = torch.mean(attention_output_2[0],axis=1)
+        last_hidden_states = torch.cat([mean_seq, mean_smiles], dim=1)
 
         mu = self.mu(last_hidden_states)
         var = self.var(last_hidden_states)
