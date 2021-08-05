@@ -116,7 +116,7 @@ class CrossAttentionLayer(nn.Module):
             past_key_value=None
         )
         attention_output = cross_attention_outputs[0]
-        outputs = cross_attention_outputs[1:-1]  # add cross attentions if we output attention weights
+        outputs = cross_attention_outputs[1:]  # add cross attentions if we output attention weights
 
         # add cross-attn cache to positions 3,4 of present_key_value tuple
         layer_output = apply_chunking_to_forward(
@@ -154,7 +154,8 @@ class MLP(torch.nn.Module):
         return self.layers(x)
 
 class EnsembleSequenceRegressor(torch.nn.Module):
-    def __init__(self, seq_model_name, smiles_model_name, max_seq_length, sparse_attention=True, *args, **kwargs):
+    def __init__(self, seq_model_name, smiles_model_name, max_seq_length, sparse_attention=True,
+                 output_attentions=False, *args, **kwargs):
         super().__init__()
 
         # enable gradient checkpointing
@@ -216,6 +217,8 @@ class EnsembleSequenceRegressor(torch.nn.Module):
             self.mu = torch.nn.Linear(seq_config.hidden_size+smiles_config.hidden_size,1)
             self.var = torch.nn.Linear(seq_config.hidden_size+smiles_config.hidden_size,1)
 
+        self.output_attentions=output_attentions
+
     def pad_to_block_size(self,
                           block_size,
                           input_ids,
@@ -241,6 +244,7 @@ class EnsembleSequenceRegressor(torch.nn.Module):
             head_mask=None,
             inputs_embeds=None,
             labels=None,
+            output_attentions=None,
     ):
         outputs = []
         input_ids_1 = input_ids[:,:self.max_seq_length]
@@ -283,21 +287,30 @@ class EnsembleSequenceRegressor(torch.nn.Module):
         smiles_output = encoder_outputs[0]
 
         # cross attentions
+        if self.output_attentions:
+            output_attentions = True
+
         attention_output_1 = self.cross_attention_seq(
             hidden_states=sequence_output,
             attention_mask=attention_mask_1,
             encoder_hidden_states=smiles_output,
-            encoder_attention_mask=extended_attention_mask_2)
+            encoder_attention_mask=extended_attention_mask_2,
+            output_attentions=output_attentions)
 
         attention_output_2 = self.cross_attention_smiles(
             hidden_states=smiles_output,
             attention_mask=attention_mask_2,
             encoder_hidden_states=sequence_output,
-            encoder_attention_mask=extended_attention_mask_1)
+            encoder_attention_mask=extended_attention_mask_1,
+            output_attentions=output_attentions)
 
         mean_seq = torch.mean(attention_output_1[0],axis=1)
         mean_smiles = torch.mean(attention_output_2[0],axis=1)
         last_hidden_states = torch.cat([mean_seq, mean_smiles], dim=1)
+
+        if output_attentions:
+            attentions_seq = attention_output_1[1]
+            attentions_smiles = attention_output_2[1]
 
         mu = self.mu(last_hidden_states)
         var = self.var(last_hidden_states)
@@ -309,4 +322,7 @@ class EnsembleSequenceRegressor(torch.nn.Module):
             loss = gaussian_nll_loss(mu, labels.view(-1,1).half(), var)
             return (loss, logits)
         else:
-            return logits
+            if output_attentions:
+                return logits, (attentions_seq, attentions_smiles)
+            else:
+                return logits
