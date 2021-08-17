@@ -206,8 +206,10 @@ class EnsembleSequenceRegressor(torch.nn.Module):
                 seq_config, 'pad_token_id') and seq_config.pad_token_id is not None else 0
 
         # Cross-attention layers
-        self.cross_attention_seq = CrossAttentionLayer(config=seq_config,other_config=smiles_config)
-        self.cross_attention_smiles = CrossAttentionLayer(config=smiles_config,other_config=seq_config)
+        self.cross_attention_seq_mean = CrossAttentionLayer(config=seq_config,other_config=smiles_config)
+        self.cross_attention_smiles_mean = CrossAttentionLayer(config=smiles_config,other_config=seq_config)
+        self.cross_attention_seq_var = CrossAttentionLayer(config=seq_config,other_config=smiles_config)
+        self.cross_attention_smiles_var = CrossAttentionLayer(config=smiles_config,other_config=seq_config)
 
         if is_deepspeed_zero3_enabled():
             with deepspeed.zero.Init(config=deepspeed_config()):
@@ -290,14 +292,14 @@ class EnsembleSequenceRegressor(torch.nn.Module):
         if self.output_attentions:
             output_attentions = True
 
-        attention_output_1 = self.cross_attention_seq(
+        attention_output_1 = self.cross_attention_seq_mean(
             hidden_states=sequence_output,
             attention_mask=attention_mask_1,
             encoder_hidden_states=smiles_output,
             encoder_attention_mask=extended_attention_mask_2,
             output_attentions=output_attentions)
 
-        attention_output_2 = self.cross_attention_smiles(
+        attention_output_2 = self.cross_attention_smiles_mean(
             hidden_states=smiles_output,
             attention_mask=attention_mask_2,
             encoder_hidden_states=sequence_output,
@@ -306,14 +308,33 @@ class EnsembleSequenceRegressor(torch.nn.Module):
 
         mean_seq = torch.mean(attention_output_1[0],axis=1)
         mean_smiles = torch.mean(attention_output_2[0],axis=1)
-        last_hidden_states = torch.cat([mean_seq, mean_smiles], dim=1)
+        last_hidden_states_mean = torch.cat([mean_seq, mean_smiles], dim=1)
 
         if output_attentions:
             attentions_seq = attention_output_1[1]
             attentions_smiles = attention_output_2[1]
 
-        mu = self.mu(last_hidden_states)
-        var = self.var(last_hidden_states)
+        mu = self.mu(last_hidden_states_mean)
+
+        attention_output_1 = self.cross_attention_seq_var(
+            hidden_states=sequence_output,
+            attention_mask=attention_mask_1,
+            encoder_hidden_states=smiles_output,
+            encoder_attention_mask=extended_attention_mask_2,
+            output_attentions=output_attentions)
+
+        attention_output_2 = self.cross_attention_smiles_var(
+            hidden_states=smiles_output,
+            attention_mask=attention_mask_2,
+            encoder_hidden_states=sequence_output,
+            encoder_attention_mask=extended_attention_mask_1,
+            output_attentions=output_attentions)
+
+        mean_seq = torch.mean(attention_output_1[0],axis=1)
+        mean_smiles = torch.mean(attention_output_2[0],axis=1)
+        last_hidden_states_var = torch.cat([mean_seq, mean_smiles], dim=1)
+
+        var = self.var(last_hidden_states_var)
         var = torch.nn.Softplus()(var) # make positive
 
         logits = torch.cat([mu,var],dim=1)
