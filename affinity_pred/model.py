@@ -292,8 +292,10 @@ class EnsembleSequenceRegressor(torch.nn.Module):
             output_attentions = True
 
         # cross-attention masks
-        cross_attention_mask_1 = self.seq_model.invert_attention_mask(attention_mask_1)
-        cross_attention_mask_2 = self.smiles_model.invert_attention_mask(attention_mask_2)
+        cross_attention_mask_1 = self.seq_model.invert_attention_mask(
+            attention_mask_1[:,None,:]*attention_mask_2[:,:,None])
+        cross_attention_mask_2 = self.smiles_model.invert_attention_mask(
+            attention_mask_2[:,None,:]*attention_mask_1[:,:,None])
 
         attention_output_1 = self.cross_attention_seq(
             hidden_states=sequence_output,
