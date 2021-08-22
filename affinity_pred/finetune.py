@@ -16,7 +16,7 @@ from transformers import HfArgumentParser
 from transformers.trainer_utils import is_main_process
 from transformers.trainer_utils import get_last_checkpoint
 
-from transformers.integrations import deepspeed_config, is_deepspeed_zero3_enabled
+from transformers.deepspeed import deepspeed_config, is_deepspeed_zero3_enabled
 import deepspeed
 
 from datasets import load_dataset
@@ -148,7 +148,7 @@ class AffinityDataset(Dataset):
         return len(self.dataset)
 
 def compute_metrics(p: EvalPrediction):
-    preds_list, out_label_list = p.predictions[0][:,0], p.label_ids
+    preds_list, out_label_list = p.predictions[:,0], p.label_ids
 
     return {
         "mse": mean_squared_error(out_label_list, preds_list),

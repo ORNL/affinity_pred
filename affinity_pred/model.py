@@ -2,7 +2,7 @@ from transformers import BertModel, BertConfig
 from transformers.models.bert.modeling_bert import BertAttention, BertIntermediate, BertOutput
 from transformers.modeling_utils import apply_chunking_to_forward
 
-from transformers.integrations import deepspeed_config, is_deepspeed_zero3_enabled
+from transformers.deepspeed import deepspeed_config, is_deepspeed_zero3_enabled
 
 import torch
 import torch.nn as nn
@@ -265,6 +265,7 @@ class EnsembleSequenceRegressor(torch.nn.Module):
         embedding_output = self.seq_model.embeddings(
                     input_ids=input_ids_1
                 )
+
         encoder_outputs = self.seq_model.encoder(
             embedding_output,
             attention_mask=extended_attention_mask_1,
@@ -280,7 +281,7 @@ class EnsembleSequenceRegressor(torch.nn.Module):
         input_ids_2 = input_ids[:,self.max_seq_length:]
         input_shape = input_ids_2.size()
         attention_mask_2 = attention_mask[:,self.max_seq_length:]
-        extended_attention_mask_2: torch.Tensor = self.smiles_model.get_extended_attention_mask(attention_mask_2, input_shape, device)
+
         encoder_outputs = self.smiles_model(input_ids=input_ids_2,
                                          attention_mask=attention_mask_2,
                                          return_dict=False)
@@ -290,18 +291,22 @@ class EnsembleSequenceRegressor(torch.nn.Module):
         if self.output_attentions:
             output_attentions = True
 
+        # cross-attention masks
+        cross_attention_mask_1 = self.seq_model.invert_attention_mask(attention_mask_1)
+        cross_attention_mask_2 = self.smiles_model.invert_attention_mask(attention_mask_2)
+
         attention_output_1 = self.cross_attention_seq(
             hidden_states=sequence_output,
             attention_mask=attention_mask_1,
             encoder_hidden_states=smiles_output,
-            encoder_attention_mask=extended_attention_mask_2,
+            encoder_attention_mask=cross_attention_mask_2,
             output_attentions=output_attentions)
 
         attention_output_2 = self.cross_attention_smiles(
             hidden_states=smiles_output,
             attention_mask=attention_mask_2,
             encoder_hidden_states=sequence_output,
-            encoder_attention_mask=extended_attention_mask_1,
+            encoder_attention_mask=cross_attention_mask_1,
             output_attentions=output_attentions)
 
         mean_seq = torch.mean(attention_output_1[0],axis=1)
