@@ -2,7 +2,7 @@
 #BSUB -P STF006
 #BSUB -W 12:00
 #BSUB -q batch
-#BSUB -nnodes 768
+#BSUB -nnodes 512
 #BSUB -J finetune
 #BSUB -o finetune.o%J
 #BSUB -e finetune.e%J
@@ -20,7 +20,6 @@ export GCC=`which gcc`
 export CXX=`which g++`
 
 # open files limit (for more than ~1000 nodes)
-ulimit -n 14000
 export OMP_NUM_THREADS=1
 
 # clear stale lock files
