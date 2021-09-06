@@ -3,9 +3,9 @@
 #BSUB -W 12:00
 #BSUB -q batch
 #BSUB -nnodes 3840
-#BSUB -J finetune_ensemble
-#BSUB -o finetune_ensemble.o%J
-#BSUB -e finetune_ensemble.e%J
+#BSUB -J finetune_ensemble_regex
+#BSUB -o finetune_ensemble_regex.o%J
+#BSUB -e finetune_ensemble_regex.e%J
 
 module load open-ce/1.2.0-py38-0
 conda activate /gpfs/alpine/world-shared/bip214/deepspeed-env
@@ -18,9 +18,8 @@ export CC=`which gcc`
 export GCC=`which gcc`
 export CXX=`which g++`
 
-# open files limit (for more than ~1000 nodes)
-ulimit -n 14000
 export OMP_NUM_THREADS=1
+export PYTHONUNBUFFERED=1
 
 # clear stale lock files
 rm -f `find -name *lock`
@@ -28,14 +27,15 @@ rm -f `find -name *lock`
 for ENSEMBLE_ID in `seq 1 5`; do
     jsrun -n 768 -g 6 -a 6 -c 42 python ../affinity_pred/finetune.py \
         --deepspeed='ds_config_stage2.json'\
-        --output_dir=./results_ensemble_${ENSEMBLE_ID}\
+        --model_type='regex' \
+        --output_dir=./results_ensemble_regex_${ENSEMBLE_ID}\
         --num_train_epochs=45\
         --per_device_train_batch_size=16\
         --per_device_eval_batch_size=16\
         --warmup_steps=5\
         --learning_rate=3e-05\
         --weight_decay=3e-7\
-        --logging_dir=./logs_ensemble_${ENSEMBLE_ID}\
+        --logging_dir=./logs_ensemble_regex_${ENSEMBLE_ID}\
         --logging_steps=1\
         --evaluation_strategy="epoch"\
         --gradient_accumulation_steps=1\

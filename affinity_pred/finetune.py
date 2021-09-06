@@ -2,14 +2,24 @@ import torch
 import logging
 
 import transformers
-from transformers import AutoModelForSequenceClassification, BertModel, RobertaModel, BertTokenizer, RobertaTokenizer
-from transformers import PreTrainedModel, BertConfig, RobertaConfig
+from transformers import BertModel, BertTokenizer, AutoTokenizer
+from transformers import PreTrainedModel, BertConfig
 from transformers import Trainer, TrainingArguments
 from transformers.data.data_collator import default_data_collator
 from transformers.tokenization_utils_base import BatchEncoding
 from transformers import EvalPrediction
 
-from transformers import AutoModelForMaskedLM
+from tokenizers.pre_tokenizers import BertPreTokenizer
+from tokenizers.pre_tokenizers import Digits
+from tokenizers.pre_tokenizers import Sequence
+from tokenizers.pre_tokenizers import WhitespaceSplit
+from tokenizers.pre_tokenizers import Split
+from tokenizers import Regex
+
+from dataclasses import dataclass, field
+from enum import Enum
+
+
 from transformers import AdamW
 
 from transformers import HfArgumentParser
@@ -70,35 +80,7 @@ else:
     seq_tokenizer = BertTokenizer.from_pretrained(seq_model_name, do_lower_case=False)
     seq_tokenizer.save_pretrained('seq_tokenizer/')
 
-model_directory = '/gpfs/alpine/world-shared/bip214/maskedevolution/models/bert_large_1B/model'
-tokenizer_directory =  '/gpfs/alpine/world-shared/bip214/maskedevolution/models/bert_large_1B/tokenizer'
-tokenizer_config = json.load(open(tokenizer_directory+'/config.json','r'))
-
-smiles_tokenizer =  BertTokenizer.from_pretrained(tokenizer_directory, **tokenizer_config)
-max_smiles_length = min(200,BertConfig.from_pretrained(model_directory).max_position_embeddings)
 max_seq_length = min(512,BertConfig.from_pretrained(seq_model_name).max_position_embeddings)
-
-class MLP(torch.nn.Module):
-    '''
-    Multilayer Perceptron.
-    '''
-    def __init__(self,ninput):
-        super().__init__()
-        nhidden = 1000
-        self.layers = torch.nn.Sequential(
-               torch.nn.Linear(ninput, nhidden),
-               torch.nn.ReLU(),
-               torch.nn.Linear(nhidden, nhidden),
-               torch.nn.ReLU(),
-               torch.nn.Linear(nhidden, nhidden),
-               torch.nn.ReLU(),
-               torch.nn.Linear(nhidden, 1)
-#        torch.nn.Linear(ninput, 1)
-        )
-
-    def forward(self, x):
-        '''Forward pass'''
-        return self.layers(x)
 
 def expand_seqs(seqs):
     input_fixed = ["".join(seq.split()) for seq in seqs]
@@ -107,25 +89,25 @@ def expand_seqs(seqs):
 
 # on-the-fly tokenization
 def encode(item):
-        seq_encodings = seq_tokenizer(expand_seqs(item['seq'])[0],
-                                     is_split_into_words=True,
-                                     return_offsets_mapping=False,
-                                     truncation=True,
-                                     padding='max_length',
-                                     add_special_tokens=True,
-                                     max_length=max_seq_length)
+    seq_encodings = seq_tokenizer(expand_seqs(item['seq'])[0],
+                                 is_split_into_words=True,
+                                 return_offsets_mapping=False,
+                                 truncation=True,
+                                 padding='max_length',
+                                 add_special_tokens=True,
+                                 max_length=max_seq_length)
 
-        smiles_encodings = smiles_tokenizer(item['smiles_can'][0],
-                                            padding='max_length',
-                                            max_length=max_smiles_length,
-                                            add_special_tokens=True,
-                                            truncation=True)
+    smiles_encodings = smiles_tokenizer(item['smiles_can'][0],
+                                        padding='max_length',
+                                        max_length=max_smiles_length,
+                                        add_special_tokens=True,
+                                        truncation=True)
 
-        item['input_ids'] = [torch.cat([torch.tensor(seq_encodings['input_ids']),
-                                        torch.tensor(smiles_encodings['input_ids'])])]
-        item['attention_mask'] = [torch.cat([torch.tensor(seq_encodings['attention_mask']),
-                                            torch.tensor(smiles_encodings['attention_mask'])])]
-        return item
+    item['input_ids'] = [torch.cat([torch.tensor(seq_encodings['input_ids']),
+                                    torch.tensor(smiles_encodings['input_ids'])])]
+    item['attention_mask'] = [torch.cat([torch.tensor(seq_encodings['attention_mask']),
+                                        torch.tensor(smiles_encodings['attention_mask'])])]
+    return item
 
 class AffinityDataset(Dataset):
     def __init__(self, dataset):
@@ -157,14 +139,45 @@ def compute_metrics(p: EvalPrediction):
 
 
 def model_init():
-    return EnsembleSequenceRegressor(seq_model_name, model_directory,  max_seq_length=max_seq_length,
+    return EnsembleSequenceRegressor(seq_model_name, smiles_model_directory,  max_seq_length=max_seq_length,
                                      sparse_attention=False)
 
-def main():
-    # also handles --deepspeed
-    parser = HfArgumentParser(TrainingArguments)
+@dataclass
+class ModelArguments:
+    model_type: str = field(
+        default='bert',
+        metadata = {'choices': ['bert','regex']},
+    )
 
-    (training_args,) = parser.parse_args_into_dataclasses()
+
+def main():
+    global smiles_tokenizer, max_smiles_length, smiles_model_directory
+
+    # also handles --deepspeed
+    parser = HfArgumentParser([TrainingArguments,ModelArguments])
+
+    (training_args, model_args) = parser.parse_args_into_dataclasses()
+
+    # set up tokenizer and pre-trained model
+    model_base_directory_dict = {
+        "bert": ["/gpfs/alpine/world-shared/med106/blnchrd/models/bert_large_plus_clean/",
+                "/gpfs/alpine/world-shared/med106/gounley1/automatedmutations/pretraining/run/job_ikFsbI/output/"],
+        "regex": ["/gpfs/alpine/world-shared/med106/blnchrd/models/bert_large_plus_clean_regex/",
+                  "/gpfs/alpine/world-shared/med106/blnchrd/automatedmutations/pretraining/run/job_86neeM/output/"]
+    }
+
+    smiles_tokenizer_directory = model_base_directory_dict[model_args.model_type][0] + 'tokenizer'
+    smiles_model_directory = model_base_directory_dict[model_args.model_type][1]
+    tokenizer_config = json.load(open(smiles_tokenizer_directory+'/config.json','r'))
+
+    smiles_tokenizer =  AutoTokenizer.from_pretrained(smiles_tokenizer_directory, **tokenizer_config)
+
+    if model_args.model_type == 'regex':
+        smiles_tokenizer.backend_tokenizer.pre_tokenizer = Sequence([WhitespaceSplit(),Split(Regex(r"""(\[[^\]]+]|Br?|Cl?|N|O|S|P|F|I|b|c|n|o|s|p|\(|\)|\.|=|#|-|\+|\\|\/|:|~|@|\?|>>?|\*|\$|\%[0-9]{2}|[0-9])"""), behavior='isolated')])
+
+    print('Tokenizer lower_case:', smiles_tokenizer.do_lower_case, flush=True)
+
+    max_smiles_length = min(200,BertConfig.from_pretrained(smiles_model_directory).max_position_embeddings)
 
     # seed the weight initialization
     torch.manual_seed(training_args.seed)

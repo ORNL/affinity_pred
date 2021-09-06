@@ -49,6 +49,15 @@
             "warmup_max_lr": "auto",
             "warmup_num_steps": "auto"
         }
+    },
+
+  "flops_profiler": {
+    "enabled": true,
+    "profile_step": 1,
+    "module_depth": -1,
+    "top_modules": 1,
+    "detailed": true,
+    "output_file": null
     }
 }
 

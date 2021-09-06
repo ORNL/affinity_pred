@@ -22,19 +22,21 @@ export CXX=`which g++`
 # open files limit (for more than ~1000 nodes)
 export OMP_NUM_THREADS=1
 
+export PYTHONUNBUFFERED=1
+
 # clear stale lock files
 rm -f `find -name *lock`
 
 jsrun $BAD_HOSTS -r 1 -g 6 -a 6 -c 42 python ../affinity_pred/finetune.py \
     --deepspeed='ds_config_stage2.json'\
-    --output_dir='./results_cross_v2'\
-    --num_train_epochs=45\
+    --output_dir='./results_cross_v3'\
+    --num_train_epochs=90\
     --per_device_train_batch_size=16\
     --per_device_eval_batch_size=16\
     --warmup_steps=5\
     --learning_rate=3e-05\
     --weight_decay=3e-7\
-    --logging_dir='./logs_cross_v2'\
+    --logging_dir='./logs_cross_v3'\
     --logging_steps=1\
     --evaluation_strategy="epoch"\
     --gradient_accumulation_steps=1\
