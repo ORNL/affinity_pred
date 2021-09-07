@@ -29,6 +29,7 @@ from transformers.trainer_utils import get_last_checkpoint
 from transformers.deepspeed import deepspeed_config, is_deepspeed_zero3_enabled
 import deepspeed
 
+import datasets
 from datasets import load_dataset
 from torch.utils.data import Dataset
 from torch.nn import functional as F
@@ -184,7 +185,17 @@ def main():
 
     # split the dataset
     #data_all = load_dataset("jglaser/binding_affinity",split='train')
-    data_all = load_dataset('parquet',data_files='/gpfs/alpine/world-shared/bip214/binding_affinity/data/all_ic50.parquet')['train']
+    data_all = load_dataset('parquet',
+        data_files='/gpfs/alpine/world-shared/bip214/binding_affinity/data/all_ic50.parquet',
+        features=datasets.Features(
+            {
+                "seq": datasets.Value("string"),
+                "smiles_can": datasets.Value("string"),
+                "neg_log10_affinity_M": datasets.Value("float"),
+                "affinity": datasets.Value("float"),
+                # These are the features of your dataset like images, labels ...
+            }),
+        )['train']
 
     # keep a small holdout data set
     split_test = data_all.train_test_split(train_size=0.99, seed=0)
