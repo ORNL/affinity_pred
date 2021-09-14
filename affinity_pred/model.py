@@ -1,5 +1,5 @@
 from transformers import BertModel, BertConfig
-from transformers.integrations import deepspeed_config, is_deepspeed_zero3_enabled
+from transformers.deepspeed import deepspeed_config, is_deepspeed_zero3_enabled
 
 import torch
 from torch.nn import functional as F
