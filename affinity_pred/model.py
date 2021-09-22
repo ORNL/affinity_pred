@@ -326,7 +326,7 @@ class EnsembleSequenceRegressor(torch.nn.Module):
         logits = torch.cat([mu,var],dim=1)
 
         if labels is not None:
-            eps = 1e-4 # fp16
+            eps = 1e-5 # fp16
             loss = gaussian_nll_loss(mu, labels.view(-1,1).half(), var, eps=eps)
             return (loss, logits)
         else:
