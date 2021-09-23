@@ -198,8 +198,7 @@ def main():
         )['train']
 
     # keep a small holdout data set
-    #split_test = data_all.train_test_split(train_size=0.99, seed=0)
-    split_test = data_all.train_test_split(train_size=125,test_size=100, seed=0)
+    split_test = data_all.train_test_split(train_size=0.99, seed=0)
 
     # further split the train set
     f = 0.9
