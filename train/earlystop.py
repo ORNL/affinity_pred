@@ -38,6 +38,7 @@ if __name__ == '__main__':
     min_loss_step = []
     for dir in dirs:
         losses, steps = get_eval_losses(dir)
+        print(dir,losses)
         step_min = steps[np.argmin(losses)]
         min_loss_step.append(step_min)
 

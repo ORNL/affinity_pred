@@ -19,9 +19,6 @@ from tokenizers import Regex
 from dataclasses import dataclass, field
 from enum import Enum
 
-
-from transformers import AdamW
-
 from transformers import HfArgumentParser
 from transformers.trainer_utils import is_main_process
 from transformers.trainer_utils import get_last_checkpoint
@@ -36,6 +33,8 @@ from torch.nn import functional as F
 
 from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score
 from sklearn.metrics import mean_squared_error, mean_absolute_error
+
+import torch_optimizer as optim
 
 import re
 import gc
@@ -244,7 +243,18 @@ def main():
         transformers.utils.logging.set_verbosity_info()
     logger.info("Training/evaluation parameters %s", training_args)
 
-    trainer = Trainer(
+    class MyTrainer(Trainer):
+        def create_optimizer(self):
+            optimizer = optim.Lamb(
+                self.model.parameters(),
+                lr= 5e-4,
+                betas=(0.9, 0.999),
+                eps=1e-8,
+                weight_decay=0,
+            )
+            return optimizer
+
+    trainer = MyTrainer(
         model_init=model_init,                # the instantiated 🤗 Transformers model to be trained
         args=training_args,                   # training arguments, defined above
         train_dataset=train_dataset,          # training dataset

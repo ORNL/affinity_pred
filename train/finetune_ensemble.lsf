@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 #BSUB -P STF006
-#BSUB -W 12:00
+#BSUB -W 2:00
 #BSUB -q batch
-#BSUB -nnodes 320
-#BSUB -J finetune_ensemble_bert
-#BSUB -o finetune_ensemble_bert.o%J
-#BSUB -e finetune_ensemble_bert.e%J
+#BSUB -nnodes 1600
+#BSUB -J finetune_ensemble_regex
+#BSUB -o finetune_ensemble_regex.o%J
+#BSUB -e finetune_ensemble_regex.e%J
 
 module load cuda/11.0.3
 module load open-ce/1.2.0-py38-0
@@ -28,18 +28,18 @@ export PYTHONUNBUFFERED=1
 # clear stale lock files
 rm -f `find -name *lock`
 
-for ENSEMBLE_ID in `seq 1 10`; do
-    jsrun -n 32 -g 6 -a 6 -c 42 python ../affinity_pred/finetune.py \
-        --deepspeed='ds_config.json'\
-        --model_type='bert' \
-        --output_dir=./results_ensemble_bert_mse_${ENSEMBLE_ID}\
+for ENSEMBLE_ID in `seq 1 5`; do
+    jsrun -n 320 -g 6 -a 6 -c 42 python ../affinity_pred/finetune.py \
+        --deepspeed='ds_config_rocm.json'\
+        --model_type='regex' \
+        --output_dir=./results_ensemble_regex_3cross_${ENSEMBLE_ID}\
         --num_train_epochs=45\
-        --per_device_train_batch_size=64\
-        --per_device_eval_batch_size=64\
+        --per_device_train_batch_size=32\
+        --per_device_eval_batch_size=32\
         --warmup_steps=5\
-        --learning_rate=3e-05\
-        --weight_decay=3e-7\
-        --logging_dir=./logs_ensemble_bert_mse_${ENSEMBLE_ID}\
+        --learning_rate=5e-4\
+        --weight_decay=0.01\
+        --logging_dir=./logs_ensemble_regex_3cross_${ENSEMBLE_ID}\
         --logging_steps=1\
         --evaluation_strategy="epoch"\
         --gradient_accumulation_steps=1\
