@@ -185,7 +185,7 @@ def main():
     # split the dataset
     #data_all = load_dataset("jglaser/binding_affinity",split='train')
     data_all = load_dataset('parquet',
-        data_files='/gpfs/alpine/world-shared/bip214/binding_affinity/data/all_ic50.parquet',
+        data_files='/gpfs/alpine/world-shared/bip214/binding_affinity/data/all.parquet',
         features=datasets.Features(
             {
                 "seq": datasets.Value("string"),
