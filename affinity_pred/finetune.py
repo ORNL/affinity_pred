@@ -27,7 +27,6 @@ from transformers.deepspeed import deepspeed_config, is_deepspeed_zero3_enabled
 import deepspeed
 
 import datasets
-from datasets import load_dataset
 from torch.utils.data import Dataset
 from torch.nn import functional as F
 
@@ -87,28 +86,6 @@ def expand_seqs(seqs):
     input_fixed = [re.sub(r"[UZOB]", "X", seq) for seq in input_fixed]
     return [list(seq) for seq in input_fixed]
 
-# on-the-fly tokenization
-def encode(item):
-    seq_encodings = seq_tokenizer(expand_seqs(item['seq'])[0],
-                                 is_split_into_words=True,
-                                 return_offsets_mapping=False,
-                                 truncation=True,
-                                 padding='max_length',
-                                 add_special_tokens=True,
-                                 max_length=max_seq_length)
-
-    smiles_encodings = smiles_tokenizer(item['smiles_can'][0],
-                                        padding='max_length',
-                                        max_length=max_smiles_length,
-                                        add_special_tokens=True,
-                                        truncation=True)
-
-    item['input_ids'] = [torch.cat([torch.tensor(seq_encodings['input_ids']),
-                                    torch.tensor(smiles_encodings['input_ids'])])]
-    item['attention_mask'] = [torch.cat([torch.tensor(seq_encodings['attention_mask']),
-                                        torch.tensor(smiles_encodings['attention_mask'])])]
-    return item
-
 class AffinityDataset(Dataset):
     def __init__(self, dataset):
         self.dataset = dataset
@@ -124,6 +101,8 @@ class AffinityDataset(Dataset):
         item.pop('seq')
         item.pop('neg_log10_affinity_M')
         item.pop('affinity')
+        item.pop('affinity_uM')
+        item.pop('smiles')
         return item
 
     def __len__(self):
@@ -138,10 +117,6 @@ def compute_metrics(p: EvalPrediction):
     }
 
 
-def model_init():
-    return EnsembleSequenceRegressor(seq_model_name, smiles_model_directory,  max_seq_length=max_seq_length,
-                                     sparse_attention=False)
-
 @dataclass
 class ModelArguments:
     model_type: str = field(
@@ -149,14 +124,48 @@ class ModelArguments:
         metadata = {'choices': ['bert','regex']},
     )
 
+    n_cross_attention: int = field(
+        default=3
+    )
+
+@dataclass
+class DataArguments:
+    dataset: str = field(
+        default=None
+    )
+
+    split: str = field(
+        default='train'
+    )
+
 
 def main():
-    global smiles_tokenizer, max_smiles_length, smiles_model_directory
+    # on-the-fly tokenization
+    def encode(item):
+        seq_encodings = seq_tokenizer(expand_seqs(item['seq'])[0],
+                                     is_split_into_words=True,
+                                     return_offsets_mapping=False,
+                                     truncation=True,
+                                     padding='max_length',
+                                     add_special_tokens=True,
+                                     max_length=max_seq_length)
+
+        smiles_encodings = smiles_tokenizer(item['smiles_can'][0],
+                                            padding='max_length',
+                                            max_length=max_smiles_length,
+                                            add_special_tokens=True,
+                                            truncation=True)
+
+        item['input_ids'] = [torch.cat([torch.tensor(seq_encodings['input_ids']),
+                                        torch.tensor(smiles_encodings['input_ids'])])]
+        item['attention_mask'] = [torch.cat([torch.tensor(seq_encodings['attention_mask']),
+                                            torch.tensor(smiles_encodings['attention_mask'])])]
+        return item
 
     # also handles --deepspeed
-    parser = HfArgumentParser([TrainingArguments,ModelArguments])
+    parser = HfArgumentParser([TrainingArguments,ModelArguments, DataArguments])
 
-    (training_args, model_args) = parser.parse_args_into_dataclasses()
+    (training_args, model_args, data_args) = parser.parse_args_into_dataclasses()
 
     # set up tokenizer and pre-trained model
     model_base_directory_dict = {
@@ -182,22 +191,23 @@ def main():
     # seed the weight initialization
     torch.manual_seed(training_args.seed)
 
-    # split the dataset
-    #data_all = load_dataset("jglaser/binding_affinity",split='train')
-    data_all = load_dataset('parquet',
-        data_files='/gpfs/alpine/world-shared/bip214/binding_affinity/data/all.parquet',
-        features=datasets.Features(
-            {
-                "seq": datasets.Value("string"),
-                "smiles_can": datasets.Value("string"),
-                "neg_log10_affinity_M": datasets.Value("float"),
-                "affinity": datasets.Value("float"),
-                # These are the features of your dataset like images, labels ...
-            }),
-        )['train']
+    import os
+    if os.path.exists(data_args.dataset):
+        # manually initialize dataset without downloading
+        builder = datasets.load_dataset_builder(path=data_args.dataset)
+        # Download and prepare data
+        builder.download_and_prepare(
+            try_from_hf_gcs=False,
+        )
+        # Build dataset for splits
+        keep_in_memory = datasets.info_utils.is_small_dataset(builder.info.dataset_size)
+        ds = builder.as_dataset(split=data_args.split, in_memory=keep_in_memory)
+    else:
+        ds = datasets.load_dataset(data_args.dataset,
+            split=data_args.split)
 
     # keep a small holdout data set
-    split_test = data_all.train_test_split(train_size=0.99, seed=0)
+    split_test = ds.train_test_split(train_size=0.99, seed=0)
 
     # further split the train set
     f = 0.9
@@ -254,8 +264,12 @@ def main():
             )
             return optimizer
 
+    model = EnsembleSequenceRegressor(seq_model_name, smiles_model_directory,  max_seq_length=max_seq_length,
+                                     sparse_attention=False,
+                                     n_cross_attention=model_args.n_cross_attention)
+
     trainer = MyTrainer(
-        model_init=model_init,                # the instantiated 🤗 Transformers model to be trained
+        model=model,
         args=training_args,                   # training arguments, defined above
         train_dataset=train_dataset,          # training dataset
         eval_dataset=val_dataset,             # evaluation dataset

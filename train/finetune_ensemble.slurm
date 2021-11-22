@@ -4,8 +4,8 @@
 #SBATCH -o %x-%j.out
 #SBATCH -t 12:00:00
 #SBATCH -p batch
-#SBATCH -N 32
-#SBATCH --array=1-5
+#SBATCH -N 16
+#SBATCH --array=1
 #SBATCH --ntasks-per-node=4
 
 source /gpfs/alpine/world-shared/med106/eju1/spock_build/miniconda/etc/profile.d/conda.sh
@@ -25,20 +25,20 @@ rm -f `find -name *lock`
 
 export ENSEMBLE_ID=$SLURM_ARRAY_TASK_ID
 
-# for debugging
-#export HIP_LAUNCH_BLOCKING=1
-
 srun python ../affinity_pred/finetune.py \
     --deepspeed='ds_config_rocm.json'\
     --model_type='regex' \
-    --output_dir=./results_ensemble_regex_3cross_spock_${ENSEMBLE_ID}\
+    --dataset='/gpfs/alpine/world-shared/bip214/binding_affinity'\
+    --split='no_kras'\
+    --n_cross_attention=3\
+    --output_dir=./logs_regex_3cross_nokras_lr2.5e-4_spock_${ENSEMBLE_ID}\
     --num_train_epochs=45\
     --per_device_train_batch_size=16\
     --per_device_eval_batch_size=16\
-    --learning_rate=5e-4\
+    --learning_rate=2.5e-4\
     --weight_decay=0.01\
     --warmup_steps=5\
-    --logging_dir=./logs_ensemble_regex_mse_3cross_spock_${ENSEMBLE_ID}\
+    --logging_dir=./logs_regex_3cross_nokras_lr2.5e-4_spock_${ENSEMBLE_ID}\
     --logging_steps=1\
     --evaluation_strategy="epoch"\
     --gradient_accumulation_steps=1\

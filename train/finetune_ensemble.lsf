@@ -32,14 +32,17 @@ for ENSEMBLE_ID in `seq 1 5`; do
     jsrun -n 320 -g 6 -a 6 -c 42 python ../affinity_pred/finetune.py \
         --deepspeed='ds_config_rocm.json'\
         --model_type='regex' \
-        --output_dir=./results_ensemble_regex_3cross_${ENSEMBLE_ID}\
+        --n_cross_attention=10\
+        --dataset='/gpfs/alpine/world-shared/bip214/binding_affinity'\
+        --split='train'\
+        --output_dir=./results_ensemble_regex_10cross_${ENSEMBLE_ID}\
         --num_train_epochs=45\
         --per_device_train_batch_size=32\
         --per_device_eval_batch_size=32\
         --warmup_steps=5\
-        --learning_rate=5e-4\
+        --learning_rate=2.5e-4\
         --weight_decay=0.01\
-        --logging_dir=./logs_ensemble_regex_3cross_${ENSEMBLE_ID}\
+        --logging_dir=./logs_ensemble_regex_10cross_${ENSEMBLE_ID}\
         --logging_steps=1\
         --evaluation_strategy="epoch"\
         --gradient_accumulation_steps=1\
