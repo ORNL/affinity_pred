@@ -266,7 +266,7 @@ def main():
 
     model = EnsembleSequenceRegressor(seq_model_name, smiles_model_directory,  max_seq_length=max_seq_length,
                                      sparse_attention=False,
-                                     n_cross_attention=model_args.n_cross_attention)
+                                     n_cross_attention_layers=model_args.n_cross_attention)
 
     trainer = MyTrainer(
         model=model,
