@@ -1,8 +1,10 @@
 maskedevolution
-transformers>=4.6.1
+transformers>=4.12.3
+deepsped>=0.5.6
 SentencePiece
 torch
 datasets
 protobuf
 seqeval
 distributed
+pytorch_optimizer

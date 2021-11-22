@@ -1,107 +1,66 @@
 from transformers import BertModel, BertConfig
+from transformers.models.bert.modeling_bert import BertAttention, BertIntermediate, BertOutput
+from transformers.modeling_utils import apply_chunking_to_forward
+
 from transformers.deepspeed import deepspeed_config, is_deepspeed_zero3_enabled
 
 import torch
+import torch.nn as nn
 from torch.nn import functional as F
 from torch import Tensor
 
-# from torch 1.9.0
-def gaussian_nll_loss(
-    input: torch.Tensor,
-    target: Tensor,
-    var: Tensor,
-    full: bool = False,
-    eps: float = 1e-6,
-    reduction: str = "mean",
-) -> Tensor:
-    r"""Gaussian negative log likelihood loss.
-
-    See :class:`~torch.nn.GaussianNLLLoss` for details.
-
-    Args:
-        input: expectation of the Gaussian distribution.
-        target: sample from the Gaussian distribution.
-        var: tensor of positive variance(s), one for each of the expectations
-            in the input (heteroscedastic), or a single one (homoscedastic).
-        full (bool, optional): include the constant term in the loss calculation. Default: ``False``.
-        eps (float, optional): value added to var, for stability. Default: 1e-6.
-        reduction (string, optional): specifies the reduction to apply to the output:
-            ``'none'`` | ``'mean'`` | ``'sum'``. ``'none'``: no reduction will be applied,
-            ``'mean'``: the output is the average of all batch member losses,
-            ``'sum'``: the output is the sum of all batch member losses.
-            Default: ``'mean'``.
-    """
-    # Check var size
-    # If var.size == input.size, the case is heteroscedastic and no further checks are needed.
-    # Otherwise:
-    if var.size() != input.size():
-
-        # If var is one dimension short of input, but the sizes match otherwise, then this is a homoscedastic case.
-        # e.g. input.size = (10, 2, 3), var.size = (10, 2)
-        # -> unsqueeze var so that var.shape = (10, 2, 1)
-        # this is done so that broadcasting can happen in the loss calculation
-        if input.size()[:-1] == var.size():
-            var = torch.unsqueeze(var, -1)
-
-        # This checks if the sizes match up to the final dimension, and the final dimension of var is of size 1.
-        # This is also a homoscedastic case.
-        # e.g. input.size = (10, 2, 3), var.size = (10, 2, 1)
-        elif input.size()[:-1] == var.size()[:-1] and var.size(-1) == 1:  # Heteroscedastic case
-            pass
-
-        # If none of the above pass, then the size of var is incorrect.
-        else:
-            raise ValueError("var is of incorrect size")
-
-    # Check validity of reduction mode
-    if reduction != 'none' and reduction != 'mean' and reduction != 'sum':
-        raise ValueError(reduction + " is not valid")
-
-    # Entries of var must be non-negative
-    if torch.any(var < 0):
-        raise ValueError("var has negative entry/entries")
-
-    # Clamp for stability
-    var = var.clone()
-    with torch.no_grad():
-        var.clamp_(min=eps)
-
-    # Calculate the loss
-    loss = 0.5 * (torch.log(var) + (input - target)**2 / var)
-    if full:
-        loss += 0.5 * math.log(2 * math.pi)
-
-    if reduction == 'mean':
-        return loss.mean()
-    elif reduction == 'sum':
-        return loss.sum()
-    else:
-        return loss
-
-class MLP(torch.nn.Module):
-    '''
-    Multilayer Perceptron with two outputs
-    '''
-    def __init__(self,ninput):
+class CrossAttentionLayer(nn.Module):
+    def __init__(self, config, other_config):
         super().__init__()
-        nhidden = 1000
-        self.layers = torch.nn.Sequential(
-               torch.nn.Linear(ninput, nhidden),
-               torch.nn.ReLU(),
-               torch.nn.Linear(nhidden, nhidden),
-               torch.nn.ReLU(),
-               torch.nn.Linear(nhidden, nhidden),
-               torch.nn.ReLU(),
-               torch.nn.Linear(nhidden, 1)
-#        torch.nn.Linear(ninput, 2)
-        )
+        self.chunk_size_feed_forward = config.chunk_size_feed_forward
+        self.seq_len_dim = 1
 
-    def forward(self, x):
-        '''Forward pass'''
-        return self.layers(x)
+        self.crossattention = BertAttention(config)
+
+        self.intermediate = BertIntermediate(config)
+        self.output = BertOutput(config)
+
+        self.crossattention.self.key = nn.Linear(other_config.hidden_size, self.crossattention.self.all_head_size)
+        self.crossattention.self.value = nn.Linear(other_config.hidden_size, self.crossattention.self.all_head_size)
+
+    def forward(
+        self,
+        hidden_states,
+        attention_mask=None,
+        head_mask=None,
+        encoder_hidden_states=None,
+        encoder_attention_mask=None,
+        past_key_value=None,
+        output_attentions=False,
+    ):
+        cross_attention_outputs = self.crossattention(
+            hidden_states=hidden_states,
+            attention_mask=attention_mask,
+            head_mask=head_mask,
+            encoder_hidden_states=encoder_hidden_states,
+            encoder_attention_mask=encoder_attention_mask,
+            output_attentions=output_attentions,
+            past_key_value=None
+        )
+        attention_output = cross_attention_outputs[0]
+        outputs = cross_attention_outputs[1:]  # add cross attentions if we output attention weights
+
+        # add cross-attn cache to positions 3,4 of present_key_value tuple
+        layer_output = apply_chunking_to_forward(
+            self.feed_forward_chunk, self.chunk_size_feed_forward, self.seq_len_dim, attention_output
+        )
+        outputs = (layer_output,) + outputs
+
+        return outputs
+
+    def feed_forward_chunk(self, attention_output):
+        intermediate_output = self.intermediate(attention_output)
+        layer_output = self.output(intermediate_output, attention_output)
+        return layer_output
 
 class EnsembleSequenceRegressor(torch.nn.Module):
-    def __init__(self, seq_model_name, smiles_model_name, max_seq_length, sparse_attention=True, *args, **kwargs):
+    def __init__(self, seq_model_name, smiles_model_name, max_seq_length, sparse_attention=True,
+                 output_attentions=False, n_cross_attention_layers=3):
         super().__init__()
 
         # enable gradient checkpointing
@@ -151,13 +110,18 @@ class EnsembleSequenceRegressor(torch.nn.Module):
             self.pad_token_id = seq_config.pad_token_id if hasattr(
                 seq_config, 'pad_token_id') and seq_config.pad_token_id is not None else 0
 
+        # Cross-attention layers
+        self.n_cross_attention_layers = n_cross_attention_layers
+        self.cross_attention_seq = nn.ModuleList([CrossAttentionLayer(config=seq_config,other_config=smiles_config) for _ in range(n_cross_attention_layers)])
+        self.cross_attention_smiles = nn.ModuleList([CrossAttentionLayer(config=smiles_config,other_config=seq_config) for _ in range(n_cross_attention_layers)])
+
         if is_deepspeed_zero3_enabled():
             with deepspeed.zero.Init(config=deepspeed_config()):
-                self.mu = MLP(seq_config.hidden_size+smiles_config.hidden_size)
-                self.var = MLP(seq_config.hidden_size+smiles_config.hidden_size)
+                self.linear = torch.nn.Linear(seq_config.hidden_size+smiles_config.hidden_size,1)
         else:
-            self.mu = MLP(seq_config.hidden_size+smiles_config.hidden_size)
-            self.var = MLP(seq_config.hidden_size+smiles_config.hidden_size)
+            self.linear = torch.nn.Linear(seq_config.hidden_size+smiles_config.hidden_size,1)
+
+        self.output_attentions=output_attentions
 
     def pad_to_block_size(self,
                           block_size,
@@ -184,6 +148,7 @@ class EnsembleSequenceRegressor(torch.nn.Module):
             head_mask=None,
             inputs_embeds=None,
             labels=None,
+            output_attentions=None,
     ):
         outputs = []
         input_ids_1 = input_ids[:,:self.max_seq_length]
@@ -192,15 +157,7 @@ class EnsembleSequenceRegressor(torch.nn.Module):
         # sequence model with sparse attention
         input_shape = input_ids_1.size()
         device = input_ids_1.device
-        extended_attention_mask: torch.Tensor = self.seq_model.get_extended_attention_mask(attention_mask_1, input_shape, device)
-        if self.seq_model.config.is_decoder and encoder_hidden_states is not None:
-            encoder_batch_size, encoder_sequence_length, _ = encoder_hidden_states.size()
-            encoder_hidden_shape = (encoder_batch_size, encoder_sequence_length)
-            if encoder_attention_mask is None:
-                encoder_attention_mask = torch.ones(encoder_hidden_shape, device=device)
-            encoder_extended_attention_mask = self.seq_model.invert_attention_mask(encoder_attention_mask)
-        else:
-            encoder_extended_attention_mask = None
+        extended_attention_mask_1: torch.Tensor = self.seq_model.get_extended_attention_mask(attention_mask_1, input_shape, device)
 
         if self.sparsity_config is not None:
             pad_len_1, input_ids_1, attention_mask_1 = self.pad_to_block_size(
@@ -212,9 +169,10 @@ class EnsembleSequenceRegressor(torch.nn.Module):
         embedding_output = self.seq_model.embeddings(
                     input_ids=input_ids_1
                 )
+
         encoder_outputs = self.seq_model.encoder(
             embedding_output,
-            attention_mask=extended_attention_mask,
+            attention_mask=extended_attention_mask_1,
             head_mask=head_mask
             )
         sequence_output = encoder_outputs[0]
@@ -223,27 +181,63 @@ class EnsembleSequenceRegressor(torch.nn.Module):
             sequence_output = self.sparse_attention_utils.unpad_sequence_output(
                 pad_len_1, sequence_output)
 
-        pooled_output = self.seq_model.pooler(sequence_output) if self.seq_model.pooler is not None else None
-        outputs.append((sequence_output, pooled_output))
-
         # smiles model with full attention
         input_ids_2 = input_ids[:,self.max_seq_length:]
+        input_shape = input_ids_2.size()
         attention_mask_2 = attention_mask[:,self.max_seq_length:]
-        outputs.append(self.smiles_model(input_ids=input_ids_2,
+
+        encoder_outputs = self.smiles_model(input_ids=input_ids_2,
                                          attention_mask=attention_mask_2,
-                                         return_dict=False))
+                                         return_dict=False)
+        smiles_output = encoder_outputs[0]
 
-        # output is a tuple (hidden_state, pooled_output)
-        last_hidden_states = torch.cat([output[1] for output in outputs], dim=1)
+        # cross attentions
+        if self.output_attentions:
+            output_attentions = True
 
-        mu = self.mu(last_hidden_states)
-        var = self.var(last_hidden_states)
-        var = torch.nn.Softplus()(var) # make positive
+        # cross-attention masks
+        cross_attention_mask_1 = self.seq_model.invert_attention_mask(
+            attention_mask_1[:,None,:]*attention_mask_2[:,:,None])
+        cross_attention_mask_2 = self.smiles_model.invert_attention_mask(
+            attention_mask_2[:,None,:]*attention_mask_1[:,:,None])
 
-        logits = torch.cat([mu,var],dim=1)
+        hidden_seq = sequence_output
+        hidden_smiles = smiles_output
+
+        for i in range(self.n_cross_attention_layers):
+            attention_output_1 = self.cross_attention_seq[i](
+                hidden_states=hidden_seq,
+                attention_mask=attention_mask_1,
+                encoder_hidden_states=hidden_smiles,
+                encoder_attention_mask=cross_attention_mask_2,
+                output_attentions=output_attentions)
+
+            attention_output_2 = self.cross_attention_smiles[i](
+                hidden_states=hidden_smiles,
+                attention_mask=attention_mask_2,
+                encoder_hidden_states=hidden_seq,
+                encoder_attention_mask=cross_attention_mask_1,
+                output_attentions=output_attentions)
+
+            hidden_seq = attention_output_1[0]
+            hidden_smiles = attention_output_2[0]
+
+        mean_seq = torch.mean(hidden_seq,axis=1)
+        mean_smiles = torch.mean(hidden_smiles,axis=1)
+        last_hidden_states = torch.cat([mean_seq, mean_smiles], dim=1)
+
+        if output_attentions:
+            attentions_seq = attention_output_1[1]
+            attentions_smiles = attention_output_2[1]
+
+        logits = self.linear(last_hidden_states).squeeze(-1)
 
         if labels is not None:
-            loss = gaussian_nll_loss(mu, labels.view(-1,1).half(), var)
+            loss_fct = torch.nn.MSELoss()
+            loss = loss_fct(logits.view(-1, 1), labels.view(-1,1).half())
             return (loss, logits)
         else:
-            return logits
+            if output_attentions:
+                return logits, (attentions_seq, attentions_smiles)
+            else:
+                return logits

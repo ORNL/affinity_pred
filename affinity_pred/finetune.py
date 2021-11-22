@@ -2,29 +2,38 @@ import torch
 import logging
 
 import transformers
-from transformers import AutoModelForSequenceClassification, BertModel, RobertaModel, BertTokenizer, RobertaTokenizer
-from transformers import PreTrainedModel, BertConfig, RobertaConfig
+from transformers import BertModel, BertTokenizer, AutoTokenizer
+from transformers import PreTrainedModel, BertConfig
 from transformers import Trainer, TrainingArguments
 from transformers.data.data_collator import default_data_collator
 from transformers.tokenization_utils_base import BatchEncoding
 from transformers import EvalPrediction
 
-from transformers import AutoModelForMaskedLM
-from transformers import AdamW
+from tokenizers.pre_tokenizers import BertPreTokenizer
+from tokenizers.pre_tokenizers import Digits
+from tokenizers.pre_tokenizers import Sequence
+from tokenizers.pre_tokenizers import WhitespaceSplit
+from tokenizers.pre_tokenizers import Split
+from tokenizers import Regex
+
+from dataclasses import dataclass, field
+from enum import Enum
 
 from transformers import HfArgumentParser
 from transformers.trainer_utils import is_main_process
 from transformers.trainer_utils import get_last_checkpoint
 
-from transformers.integrations import deepspeed_config, is_deepspeed_zero3_enabled
+from transformers.deepspeed import deepspeed_config, is_deepspeed_zero3_enabled
 import deepspeed
 
-from datasets import load_dataset
+import datasets
 from torch.utils.data import Dataset
 from torch.nn import functional as F
 
 from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score
 from sklearn.metrics import mean_squared_error, mean_absolute_error
+
+import torch_optimizer as optim
 
 import re
 import gc
@@ -70,43 +79,69 @@ else:
     seq_tokenizer = BertTokenizer.from_pretrained(seq_model_name, do_lower_case=False)
     seq_tokenizer.save_pretrained('seq_tokenizer/')
 
-model_directory = '/gpfs/alpine/world-shared/bip214/maskedevolution/models/bert_large_1B/model'
-tokenizer_directory =  '/gpfs/alpine/world-shared/bip214/maskedevolution/models/bert_large_1B/tokenizer'
-tokenizer_config = json.load(open(tokenizer_directory+'/config.json','r'))
-
-smiles_tokenizer =  BertTokenizer.from_pretrained(tokenizer_directory, **tokenizer_config)
-max_smiles_length = min(200,BertConfig.from_pretrained(model_directory).max_position_embeddings)
-max_seq_length = min(4096,BertConfig.from_pretrained(seq_model_name).max_position_embeddings)
-
-class MLP(torch.nn.Module):
-    '''
-    Multilayer Perceptron.
-    '''
-    def __init__(self,ninput):
-        super().__init__()
-        nhidden = 1000
-        self.layers = torch.nn.Sequential(
-               torch.nn.Linear(ninput, nhidden),
-               torch.nn.ReLU(),
-               torch.nn.Linear(nhidden, nhidden),
-               torch.nn.ReLU(),
-               torch.nn.Linear(nhidden, nhidden),
-               torch.nn.ReLU(),
-               torch.nn.Linear(nhidden, 1)
-#        torch.nn.Linear(ninput, 1)
-        )
-
-    def forward(self, x):
-        '''Forward pass'''
-        return self.layers(x)
+max_seq_length = min(512,BertConfig.from_pretrained(seq_model_name).max_position_embeddings)
 
 def expand_seqs(seqs):
     input_fixed = ["".join(seq.split()) for seq in seqs]
     input_fixed = [re.sub(r"[UZOB]", "X", seq) for seq in input_fixed]
     return [list(seq) for seq in input_fixed]
 
-# on-the-fly tokenization
-def encode(item):
+class AffinityDataset(Dataset):
+    def __init__(self, dataset):
+        self.dataset = dataset
+
+    def __getitem__(self, idx):
+        item = self.dataset[idx]
+        #affinity = item['neg_log10_affinity_M']
+        affinity = float(item['affinity'])
+        item['labels'] = float(affinity)
+
+        # drop the non-encoded input
+        item.pop('smiles_can')
+        item.pop('seq')
+        item.pop('neg_log10_affinity_M')
+        item.pop('affinity')
+        item.pop('affinity_uM')
+        item.pop('smiles')
+        return item
+
+    def __len__(self):
+        return len(self.dataset)
+
+def compute_metrics(p: EvalPrediction):
+    preds_list, out_label_list = p.predictions, p.label_ids
+
+    return {
+        "mse": mean_squared_error(out_label_list, preds_list),
+        "mae": mean_absolute_error(out_label_list, preds_list),
+    }
+
+
+@dataclass
+class ModelArguments:
+    model_type: str = field(
+        default='bert',
+        metadata = {'choices': ['bert','regex']},
+    )
+
+    n_cross_attention: int = field(
+        default=3
+    )
+
+@dataclass
+class DataArguments:
+    dataset: str = field(
+        default=None
+    )
+
+    split: str = field(
+        default='train'
+    )
+
+
+def main():
+    # on-the-fly tokenization
+    def encode(item):
         seq_encodings = seq_tokenizer(expand_seqs(item['seq'])[0],
                                      is_split_into_words=True,
                                      return_offsets_mapping=False,
@@ -127,53 +162,52 @@ def encode(item):
                                             torch.tensor(smiles_encodings['attention_mask'])])]
         return item
 
-class AffinityDataset(Dataset):
-    def __init__(self, dataset):
-        self.dataset = dataset
+    # also handles --deepspeed
+    parser = HfArgumentParser([TrainingArguments,ModelArguments, DataArguments])
 
-    def __getitem__(self, idx):
-        item = self.dataset[idx]
-        #affinity = item['neg_log10_affinity_M']
-        affinity = float(item['affinity'])
-        item['labels'] = float(affinity)
+    (training_args, model_args, data_args) = parser.parse_args_into_dataclasses()
 
-        # drop the non-encoded input
-        item.pop('smiles_can')
-        item.pop('seq')
-        item.pop('neg_log10_affinity_M')
-        item.pop('affinity')
-        return item
-
-    def __len__(self):
-        return len(self.dataset)
-
-def compute_metrics(p: EvalPrediction):
-    preds_list, out_label_list = p.predictions[:,0], p.label_ids
-
-    return {
-        "mse": mean_squared_error(out_label_list, preds_list),
-        "mae": mean_absolute_error(out_label_list, preds_list),
+    # set up tokenizer and pre-trained model
+    model_base_directory_dict = {
+        "bert": ["/gpfs/alpine/world-shared/med106/blnchrd/models/bert_large_plus_clean/",
+                "/gpfs/alpine/world-shared/med106/gounley1/automatedmutations/pretraining/run/job_ikFsbI/output/"],
+        "regex": ["/gpfs/alpine/world-shared/med106/blnchrd/models/bert_large_plus_clean_regex/",
+                  "/gpfs/alpine/world-shared/med106/blnchrd/automatedmutations/pretraining/run/job_86neeM/output/"]
     }
 
+    smiles_tokenizer_directory = model_base_directory_dict[model_args.model_type][0] + 'tokenizer'
+    smiles_model_directory = model_base_directory_dict[model_args.model_type][1]
+    tokenizer_config = json.load(open(smiles_tokenizer_directory+'/config.json','r'))
 
-def model_init():
-    return EnsembleSequenceRegressor(seq_model_name, model_directory,  max_seq_length=max_seq_length,
-                                     sparse_attention=True)
+    smiles_tokenizer =  AutoTokenizer.from_pretrained(smiles_tokenizer_directory, **tokenizer_config)
 
-def main():
-    # also handles --deepspeed
-    parser = HfArgumentParser(TrainingArguments)
+    if model_args.model_type == 'regex':
+        smiles_tokenizer.backend_tokenizer.pre_tokenizer = Sequence([WhitespaceSplit(),Split(Regex(r"""(\[[^\]]+]|Br?|Cl?|N|O|S|P|F|I|b|c|n|o|s|p|\(|\)|\.|=|#|-|\+|\\|\/|:|~|@|\?|>>?|\*|\$|\%[0-9]{2}|[0-9])"""), behavior='isolated')])
 
-    (training_args,) = parser.parse_args_into_dataclasses()
+    print('Tokenizer lower_case:', smiles_tokenizer.do_lower_case, flush=True)
+
+    max_smiles_length = min(200,BertConfig.from_pretrained(smiles_model_directory).max_position_embeddings)
 
     # seed the weight initialization
     torch.manual_seed(training_args.seed)
 
-    # split the dataset
-    data_all = load_dataset("jglaser/binding_affinity",split='train')
+    import os
+    if os.path.exists(data_args.dataset):
+        # manually initialize dataset without downloading
+        builder = datasets.load_dataset_builder(path=data_args.dataset)
+        # Download and prepare data
+        builder.download_and_prepare(
+            try_from_hf_gcs=False,
+        )
+        # Build dataset for splits
+        keep_in_memory = datasets.info_utils.is_small_dataset(builder.info.dataset_size)
+        ds = builder.as_dataset(split=data_args.split, in_memory=keep_in_memory)
+    else:
+        ds = datasets.load_dataset(data_args.dataset,
+            split=data_args.split)
 
     # keep a small holdout data set
-    split_test = data_all.train_test_split(train_size=0.99, seed=0)
+    split_test = ds.train_test_split(train_size=0.99, seed=0)
 
     # further split the train set
     f = 0.9
@@ -219,8 +253,23 @@ def main():
         transformers.utils.logging.set_verbosity_info()
     logger.info("Training/evaluation parameters %s", training_args)
 
-    trainer = Trainer(
-        model_init=model_init,                # the instantiated 🤗 Transformers model to be trained
+    class MyTrainer(Trainer):
+        def create_optimizer(self):
+            optimizer = optim.Lamb(
+                self.model.parameters(),
+                lr= 5e-4,
+                betas=(0.9, 0.999),
+                eps=1e-8,
+                weight_decay=0,
+            )
+            return optimizer
+
+    model = EnsembleSequenceRegressor(seq_model_name, smiles_model_directory,  max_seq_length=max_seq_length,
+                                     sparse_attention=False,
+                                     n_cross_attention_layers=model_args.n_cross_attention)
+
+    trainer = MyTrainer(
+        model=model,
         args=training_args,                   # training arguments, defined above
         train_dataset=train_dataset,          # training dataset
         eval_dataset=val_dataset,             # evaluation dataset
