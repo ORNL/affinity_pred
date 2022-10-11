@@ -11,8 +11,8 @@ pip install git+https://github.com/jglaser/affinity_pred
 
 Evaluation on Google Colab
 
-- Regex tokenizer model [![Regex tokenizer model](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/jglaser/affinity_pred/blob/master/eval_regex.ipynb)
-- BERT tokenizer model [![BERT tokenizer model](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/jglaser/affinity_pred/blob/master/eval_bert.ipynb)
+- [Regex tokenizer model](./eval_regex.ipynb)[![Regex tokenizer model](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/jglaser/affinity_pred/blob/master/eval_regex.ipynb)
+- [BERT tokenizer model](./eval_bert.ipynb) [![BERT tokenizer model](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/jglaser/affinity_pred/blob/master/eval_bert.ipynb)
 
 Validation on SARS-CoV-2 Mpro experimental data
 ![alt text](https://github.com/jglaser/affinity_pred/blob/master/data/postera_pr_2.50.png?raw=true)
