@@ -59,7 +59,7 @@ class CrossAttentionLayer(nn.Module):
         return layer_output
 
 class EnsembleSequenceRegressor(torch.nn.Module):
-    def __init__(self, seq_model_name, smiles_model_name, max_seq_length, sparse_attention=True,
+    def __init__(self, seq_model_name, smiles_model_name, max_seq_length, sparse_attention=False,
                  output_attentions=False, n_cross_attention_layers=3):
         super().__init__()
 
