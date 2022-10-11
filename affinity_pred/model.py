@@ -59,8 +59,30 @@ class CrossAttentionLayer(nn.Module):
         return layer_output
 
 class EnsembleSequenceRegressor(torch.nn.Module):
-    def __init__(self, seq_model_name, smiles_model_name, max_seq_length=None, sparse_attention=False,
-                 output_attentions=False, n_cross_attention_layers=3):
+    """
+        Args:
+            seq_model_name (:obj:`str`):
+                The name of the BERT model for sequence inputs
+
+            smiles_model_name (obj:`str`):
+                The name of the BERT model for SMILES inputs
+
+            max_seq_length (int):
+                The maximum length of the protein sequence. The input to the `forward` function
+                is assumed to be a concenation of `max_seq_length` protein tokens followed by
+                SMILES tokens.
+
+            sparse_attention (bool):
+                If true, use DeepSpeed's sparse attention layers in the protein model
+
+            output_attentions (bool):
+                If true, output attention scores
+
+            n_cross_attention_layers (int):
+                The number of cross attention layers, one is the default
+    """
+    def __init__(self, seq_model_name, smiles_model_name, max_seq_length, sparse_attention=False,
+                 output_attentions=False, n_cross_attention_layers=1):
         super().__init__()
 
         # enable gradient checkpointing
@@ -78,6 +100,7 @@ class EnsembleSequenceRegressor(torch.nn.Module):
         self.config = BertConfig(hidden_size = self.seq_model.config.hidden_size + self.smiles_model.config.hidden_size)
 
         self.sparsity_config = None
+        self.sparse_attention = sparse_attention
         if sparse_attention:
             try:
                 from deepspeed.ops.sparse_attention import FixedSparsityConfig as STConfig
@@ -112,8 +135,13 @@ class EnsembleSequenceRegressor(torch.nn.Module):
 
         # Cross-attention layers
         self.n_cross_attention_layers = n_cross_attention_layers
-        self.cross_attention_seq = nn.ModuleList([CrossAttentionLayer(config=seq_config,other_config=smiles_config) for _ in range(n_cross_attention_layers)])
-        self.cross_attention_smiles = nn.ModuleList([CrossAttentionLayer(config=smiles_config,other_config=seq_config) for _ in range(n_cross_attention_layers)])
+
+        if n_cross_attention_layers > 1:
+            self.cross_attention_seq = nn.ModuleList([CrossAttentionLayer(config=seq_config,other_config=smiles_config) for _ in range(n_cross_attention_layers)])
+            self.cross_attention_smiles = nn.ModuleList([CrossAttentionLayer(config=smiles_config,other_config=seq_config) for _ in range(n_cross_attention_layers)])
+        else:
+            self.cross_attention_seq = CrossAttentionLayer(config=seq_config,other_config=smiles_config)
+            self.cross_attention_smiles = CrossAttentionLayer(config=smiles_config,other_config=seq_config)
 
         if is_deepspeed_zero3_enabled():
             with deepspeed.zero.Init(config=deepspeed_config()):
@@ -152,9 +180,9 @@ class EnsembleSequenceRegressor(torch.nn.Module):
     ):
         outputs = []
 
-        if sparse_attention:
-            input_ids_1 = input_ids[:,:self.max_seq_length]
-            attention_mask_1 = attention_mask[:,:self.max_seq_length]
+        input_ids_1 = input_ids[:,:self.max_seq_length]
+
+        attention_mask_1 = attention_mask[:,:self.max_seq_length]
 
         # sequence model with sparse attention
         input_shape = input_ids_1.size()
@@ -185,9 +213,8 @@ class EnsembleSequenceRegressor(torch.nn.Module):
 
         # smiles model with full attention
 
-        if sparse_attention:
-            input_ids_2 = input_ids[:,self.max_seq_length:]
-            attention_mask_2 = attention_mask[:,self.max_seq_length:]
+        input_ids_2 = input_ids[:,self.max_seq_length:]
+        attention_mask_2 = attention_mask[:,self.max_seq_length:]
 
         input_shape = input_ids_2.size()
 
@@ -209,23 +236,41 @@ class EnsembleSequenceRegressor(torch.nn.Module):
         hidden_seq = sequence_output
         hidden_smiles = smiles_output
 
-        for i in range(self.n_cross_attention_layers):
-            attention_output_1 = self.cross_attention_seq[i](
+        if self.n_cross_attention_layers > 1:
+            # this seemingly unnecessary branching is meant for compatiblity with older model checkpoints
+            for i in range(self.n_cross_attention_layers):
+                attention_output_1 = self.cross_attention_seq[i](
+                    hidden_states=hidden_seq,
+                    attention_mask=attention_mask_1,
+                    encoder_hidden_states=hidden_smiles,
+                    encoder_attention_mask=cross_attention_mask_2,
+                    output_attentions=output_attentions)
+
+                attention_output_2 = self.cross_attention_smiles[i](
+                    hidden_states=hidden_smiles,
+                    attention_mask=attention_mask_2,
+                    encoder_hidden_states=hidden_seq,
+                    encoder_attention_mask=cross_attention_mask_1,
+                    output_attentions=output_attentions)
+
+                hidden_seq = attention_output_1[0]
+                hidden_smiles = attention_output_2[0]
+        else:
+            hidden_seq = self.cross_attention_seq(
                 hidden_states=hidden_seq,
                 attention_mask=attention_mask_1,
                 encoder_hidden_states=hidden_smiles,
                 encoder_attention_mask=cross_attention_mask_2,
-                output_attentions=output_attentions)
+                output_attentions=output_attentions)[0]
 
-            attention_output_2 = self.cross_attention_smiles[i](
+            hidden_smiles = self.cross_attention_smiles(
                 hidden_states=hidden_smiles,
                 attention_mask=attention_mask_2,
                 encoder_hidden_states=hidden_seq,
                 encoder_attention_mask=cross_attention_mask_1,
-                output_attentions=output_attentions)
+                output_attentions=output_attentions)[0]
 
-            hidden_seq = attention_output_1[0]
-            hidden_smiles = attention_output_2[0]
+
 
         mean_seq = torch.mean(hidden_seq,axis=1)
         mean_smiles = torch.mean(hidden_smiles,axis=1)
