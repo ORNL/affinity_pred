@@ -16,3 +16,5 @@ Evaluation on Google Colab
 
 Validation on SARS-CoV-2 Mpro experimental data
 ![alt text](https://github.com/jglaser/affinity_pred/blob/master/data/postera_pr_2.50.png?raw=true)
+
+The model weights are downloaded from [Huggingface Hub](https://huggingface.co/jglaser)
