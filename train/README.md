@@ -1,7 +1,6 @@
 *Prequisites*
 
-- mpi4py # for deepspeed
-- deepspeed
+- mpi4py
 - transformers 4.6.1
 
 ```

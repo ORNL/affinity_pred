@@ -30,17 +30,17 @@ def get_eval_losses(summary_dir):
                     if value.tag == 'eval/loss':
                         losses.append(value.simple_value)
                         steps.append(event.step)
+    loss = np.array(losses)
+    steps = np.array(steps)
     return losses, steps
 
 if __name__ == '__main__':
     dirs = list(glob.glob(sys.argv[1]))
 
     min_loss_step = []
-    for dir in dirs:
-        losses, steps = get_eval_losses(dir)
-        print(dir,losses)
-        step_min = steps[np.argmin(losses)]
-        min_loss_step.append(step_min)
+    for directory in sorted(dirs):
+        losses, steps = get_eval_losses(directory)
 
-    for dir,step_min in zip(dirs,min_loss_step):
-        print('{} Min loss step: {}'.format(dir, step_min))
+        print('{} Min loss {} step: {}'.format(directory, np.min(losses), steps[np.argmin(losses)]))
+        print('{} last loss {} step {}'.format(directory, losses[-1], steps[-1]))
+        print()
