@@ -59,7 +59,7 @@ class CrossAttentionLayer(nn.Module):
         return layer_output
 
 class EnsembleSequenceRegressor(torch.nn.Module):
-    def __init__(self, seq_model_name, smiles_model_name, max_seq_length, sparse_attention=False,
+    def __init__(self, seq_model_name, smiles_model_name, max_seq_length=None, sparse_attention=False,
                  output_attentions=False, n_cross_attention_layers=3):
         super().__init__()
 
@@ -151,8 +151,10 @@ class EnsembleSequenceRegressor(torch.nn.Module):
             output_attentions=None,
     ):
         outputs = []
-        input_ids_1 = input_ids[:,:self.max_seq_length]
-        attention_mask_1 = attention_mask[:,:self.max_seq_length]
+
+        if sparse_attention:
+            input_ids_1 = input_ids[:,:self.max_seq_length]
+            attention_mask_1 = attention_mask[:,:self.max_seq_length]
 
         # sequence model with sparse attention
         input_shape = input_ids_1.size()
@@ -182,9 +184,12 @@ class EnsembleSequenceRegressor(torch.nn.Module):
                 pad_len_1, sequence_output)
 
         # smiles model with full attention
-        input_ids_2 = input_ids[:,self.max_seq_length:]
+
+        if sparse_attention:
+            input_ids_2 = input_ids[:,self.max_seq_length:]
+            attention_mask_2 = attention_mask[:,self.max_seq_length:]
+
         input_shape = input_ids_2.size()
-        attention_mask_2 = attention_mask[:,self.max_seq_length:]
 
         encoder_outputs = self.smiles_model(input_ids=input_ids_2,
                                          attention_mask=attention_mask_2,
