@@ -6,15 +6,15 @@ This repository implements a transformer model for binding affinity prediction o
 Local installation
 
 ```
-pip install git+https://github.com/jglaser/affinity_pred
+pip install git+https://github.com/ORNL/affinity_pred
 ```
 
 Evaluation on Google Colab
 
-- [Regex tokenizer model](./eval_regex.ipynb)[![Regex tokenizer model](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/jglaser/affinity_pred/blob/master/eval_regex.ipynb)
-- [BERT tokenizer model](./eval_bert.ipynb) [![BERT tokenizer model](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/jglaser/affinity_pred/blob/master/eval_bert.ipynb)
+- [Regex tokenizer model](./eval_regex.ipynb)[![Regex tokenizer model](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/ORNL/affinity_pred/blob/master/eval_regex.ipynb)
+- [BERT tokenizer model](./eval_bert.ipynb) [![BERT tokenizer model](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/ORNL/affinity_pred/blob/master/eval_bert.ipynb)
 
 Validation on SARS-CoV-2 Mpro experimental data
-![alt text](https://github.com/jglaser/affinity_pred/blob/master/data/postera_pr_2.50.png?raw=true)
+![alt text](https://github.com/ORNL/affinity_pred/blob/master/data/postera_pr_2.50.png?raw=true)
 
 The model weights are downloaded from [Huggingface Hub](https://huggingface.co/jglaser)
